@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232733"/>
+      <stop offset="1" stop-color="#0b0d12"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.55" r="0.5">
+      <stop offset="0" stop-color="#ff3b4e" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ff3b4e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a4f5c"/>
+      <stop offset="0.45" stop-color="#262a33"/>
+      <stop offset="1" stop-color="#111318"/>
+    </linearGradient>
+    <linearGradient id="rgb" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff0050"/>
+      <stop offset="0.2" stop-color="#ff9a00"/>
+      <stop offset="0.4" stop-color="#3dff6a"/>
+      <stop offset="0.6" stop-color="#00c8ff"/>
+      <stop offset="0.8" stop-color="#8a3dff"/>
+      <stop offset="1" stop-color="#ff00c8"/>
+    </linearGradient>
+    <linearGradient id="wheel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a95"/>
+      <stop offset="1" stop-color="#e0102a"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur12" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="blur5" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+    <pattern id="hex" width="26" height="30" patternUnits="userSpaceOnUse">
+      <path d="M13 2 L24 8.5 L24 21.5 L13 28 L2 21.5 L2 8.5 Z" fill="#0a0b0e" stroke="none"/>
+    </pattern>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.35" stop-color="#fff" stop-opacity="1"/>
+    </linearGradient>
+    <mask id="hexmask"><rect x="144" y="250" width="224" height="200" fill="url(#fade)"/></mask>
+    <clipPath id="shell"><path d="M256 92 C 332 92 368 150 368 236 L 368 330 C 368 404 318 444 256 444 C 194 444 144 404 144 330 L 144 236 C 144 150 180 92 256 92 Z"/></clipPath>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#halo)"/>
+  <rect x="17.5" y="17.5" width="477" height="477" rx="110.5" fill="none" stroke="#ff3b4e" stroke-opacity="0.35" stroke-width="3"/>
+
+  <!-- RGB underglow -->
+  <ellipse cx="256" cy="438" rx="120" ry="26" fill="url(#rgb)" filter="url(#blur12)" opacity="0.95"/>
+
+  <!-- корпус -->
+  <path d="M256 92 C 332 92 368 150 368 236 L 368 330 C 368 404 318 444 256 444 C 194 444 144 404 144 330 L 144 236 C 144 150 180 92 256 92 Z" fill="url(#body)"/>
+  <!-- соты на задней части -->
+  <g clip-path="url(#shell)" mask="url(#hexmask)">
+    <rect x="144" y="250" width="224" height="200" fill="url(#hex)" opacity="0.85"/>
+    <rect x="144" y="300" width="224" height="150" fill="url(#rgb)" opacity="0.18"/>
+  </g>
+  <!-- RGB кант снизу -->
+  <path d="M150 352 C 160 414 204 444 256 444 C 308 444 352 414 362 352" fill="none" stroke="url(#rgb)" stroke-width="7" stroke-linecap="round"/>
+  <!-- разделение кнопок -->
+  <path d="M256 96 L 256 214" stroke="#0a0b0e" stroke-width="5" stroke-linecap="round"/>
+  <path d="M150 232 C 200 250 312 250 362 232" fill="none" stroke="#0a0b0e" stroke-width="5" stroke-linecap="round"/>
+  <!-- блик -->
+  <path d="M200 116 C 176 140 166 180 164 226 C 180 236 200 240 222 242 L 222 112 C 214 112 206 113 200 116 Z" fill="url(#shine)"/>
+  <!-- колесо с подсветкой -->
+  <rect x="236" y="126" width="40" height="76" rx="20" fill="#ff3b4e" filter="url(#blur5)" opacity="0.9"/>
+  <rect x="241" y="130" width="30" height="68" rx="15" fill="url(#wheel)"/>
+  <path d="M246 146 L 266 146 M246 158 L 266 158 M246 170 L 266 170 M246 182 L 266 182" stroke="#8a0a1a" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <!-- кнопка DPI -->
+  <rect x="244" y="212" width="24" height="12" rx="6" fill="#ff3b4e"/>
+</svg>

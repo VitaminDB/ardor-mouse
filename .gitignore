@@ -1,0 +1,10 @@
+/target
+# makepkg
+/packaging/**/src/
+/packaging/**/pkg/
+*.pkg.tar.zst
+# не используются приложением
+/assets/skins/dpibar_nr.png
+/assets/skins/led_nr.png
+/assets/skins/power_*.png
+/screenshots/Снимок экрана_*.png

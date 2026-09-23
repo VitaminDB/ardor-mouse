@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=ARDOR Mouse
+Name[ru]=Настройка мыши ARDOR
+GenericName=Mouse Configuration
+GenericName[ru]=Настройка игровой мыши
+Comment=Configure ARDOR GAMING Edge Air Ultra: DPI, RGB lighting, buttons, polling rate
+Comment[ru]=DPI, подсветка, кнопки и частота опроса мыши ARDOR GAMING Edge Air Ultra
+Exec=ardor-mouse
+Icon=ardor-mouse
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=mouse;dpi;rgb;ardor;gaming;мышь;подсветка;
+StartupWMClass=ardor-mouse
