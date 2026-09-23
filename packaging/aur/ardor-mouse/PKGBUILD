@@ -12,7 +12,7 @@ makedepends=('cargo' 'git')
 options=('!lto' '!debug')
 install=ardor-mouse.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('6c31bc2108ef610ef6315f9e56f20fa1ec4ceb4381f07565ffe4a03a5894e613')
 
 prepare() {
     cd "$pkgname-$pkgver"
