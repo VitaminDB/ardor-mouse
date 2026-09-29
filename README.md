@@ -1,5 +1,7 @@
 # ardor-mouse
 
+[![Vibe-coded with Claude Code](https://img.shields.io/badge/vibe--coded-Claude%20Code-d97757)](#how-it-is-built)
+
 A native Linux configuration tool for the **ARDOR GAMING Edge Air Ultra** wireless mouse —
 a replacement for the vendor's Windows-only `OemDrv.exe`.
 
@@ -110,6 +112,14 @@ packaging/      udev rule, .desktop entry, PKGBUILD
 
 `cargo test` runs 30 tests, including decoding of packets and EEPROM dumps captured from a
 real mouse.
+
+## How it is built
+
+This project is vibe-coded. Since spring 2026 I write all of my projects with [Claude
+Code](https://claude.com/claude-code): I decide what to build and how it fits together,
+describe each task, and review, run and measure the result on my own hardware — the model
+writes the code, the tests and most of the documentation. The protocol was reverse-engineered
+from and tested on my own mouse.
 
 ## Disclaimer
 
