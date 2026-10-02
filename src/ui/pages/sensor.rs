@@ -1,6 +1,5 @@
 //! Страница сенсора и радиоканала: частота опроса, LOD, debounce, сон.
 
-use crate::protocol::eeprom::PollingRate;
 use crate::ui::app::AppCtx;
 use crate::ui::widgets::{reactive, card, page_header, setting_row};
 use syngui::prelude::*;
@@ -34,9 +33,10 @@ fn response(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
         let (c_rate, c_deb) = (ctx.clone(), ctx.clone());
-        let rate_idx = PollingRate::ALL.iter().position(|&r| r == cfg.polling).unwrap_or(3);
+        let rates = cfg.model.polling_rates();
+        let rate_idx = rates.iter().position(|&r| r == cfg.polling).unwrap_or(3);
         let segments: Vec<Segment> =
-            PollingRate::ALL.iter().map(|r| Segment::new(format!("{} Гц", r.hz()))).collect();
+            rates.iter().map(|r| Segment::new(format!("{} Гц", r.hz()))).collect();
         Column::new()
             .gap(20.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -46,7 +46,7 @@ fn response(ctx: AppCtx) -> impl Widget {
                 Box::new(
                     SegmentedButton::new(segments)
                         .selected(rate_idx)
-                        .on_change(move |i| c_rate.edit(|c| c.polling = PollingRate::ALL[i]))
+                        .on_change(move |i| c_rate.edit(|c| c.polling = rates[i]))
                         .class("seg"),
                 ),
             ))
@@ -69,17 +69,18 @@ fn response(ctx: AppCtx) -> impl Widget {
 fn motion(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
-        let (c_lod, c_ang, c_rip) = (ctx.clone(), ctx.clone(), ctx.clone());
-        Column::new()
+        let (c_lod, c_ang, c_rip, c_ms) = (ctx.clone(), ctx.clone(), ctx.clone(), ctx.clone());
+        let lods = cfg.model.lod_options();
+        let col = Column::new()
             .gap(20.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(setting_row(
                 "Высота отрыва (LOD)",
                 "На какой высоте над ковриком сенсор перестаёт отслеживать движение.",
                 Box::new(
-                    SegmentedButton::new(vec![Segment::new("1 мм"), Segment::new("2 мм")])
-                        .selected(if cfg.lod == 2 { 1 } else { 0 })
-                        .on_change(move |i| c_lod.edit(|c| c.lod = i as u8 + 1))
+                    SegmentedButton::new(lods.iter().map(|&(_, label)| Segment::new(label)).collect())
+                        .selected(lods.iter().position(|&(v, _)| v == cfg.lod).unwrap_or(0))
+                        .on_change(move |i| c_lod.edit(|c| c.lod = lods[i].0))
                         .class("seg"),
                 ),
             ))
@@ -92,20 +93,29 @@ fn motion(ctx: AppCtx) -> impl Widget {
                 "Подавление пульсаций (ripple control)",
                 "Фильтрует шум сенсора на высоких DPI ценой небольшой задержки.",
                 Box::new(Toggle::new().on(cfg.ripple).on_change(move |v| c_rip.edit(|c| c.ripple = v))),
-            ))
+            ));
+        if !cfg.model.has_motion_sync() {
+            return col;
+        }
+        col.child(setting_row(
+            "Motion Sync",
+            "Синхронизирует опрос сенсора с отправкой отчётов: движение ровнее, \
+             задержка чуть больше (около половины интервала опроса).",
+            Box::new(Toggle::new().on(cfg.motion_sync).on_change(move |v| c_ms.edit(|c| c.motion_sync = v))),
+        ))
     })
 }
 
 fn power(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
-        let c = ctx.clone();
+        let (c, c_mode) = (ctx.clone(), ctx.clone());
         let mut items: Vec<DropdownItem> =
             SLEEP.iter().map(|(v, l)| DropdownItem::new(v.to_string(), *l)).collect();
         if !SLEEP.iter().any(|(v, _)| *v == cfg.sleep_x10s) {
             items.push(DropdownItem::new(cfg.sleep_x10s.to_string(), format!("{} с", cfg.sleep_x10s as u32 * 10)));
         }
-        setting_row(
+        let sleep = setting_row(
             "Переход в сон",
             "Через сколько секунд бездействия беспроводная мышь засыпает.",
             Box::new(
@@ -118,6 +128,21 @@ fn power(ctx: AppCtx) -> impl Widget {
                         }
                     }),
             ),
-        )
+        );
+        let col = Column::new().gap(20.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(sleep);
+        if !cfg.model.has_sensor_mode() {
+            return col;
+        }
+        col.child(setting_row(
+            "Режим сенсора",
+            "HP — максимальная частота кадров сенсора и минимальная задержка. \
+             LP — экономия батареи ценой чуть худшего трекинга на резких движениях.",
+            Box::new(
+                SegmentedButton::new(vec![Segment::new("LP"), Segment::new("HP")])
+                    .selected(cfg.sensor_hp as usize)
+                    .on_change(move |i| c_mode.edit(|c| c.sensor_hp = i == 1))
+                    .class("seg"),
+            ),
+        ))
     })
 }

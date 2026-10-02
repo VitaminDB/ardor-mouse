@@ -1,8 +1,9 @@
 //! Пакеты JM03 (Compx) — формат из RE `FUN_0044f0c0` / `FUN_0044e490` /
 //! `FUN_0044e7f0`, подтверждён на живом донгле 25a7:fa7c.
 //!
-//! Запрос — HID **Feature report 0x08** (Usage Page 0xFF02, 16 байт данных),
-//! итого 17 байт вместе с Report ID:
+//! Запрос — HID-репорт **0x08** (Usage Page 0xFF02, 16 байт данных): у Edge Air
+//! Ultra это feature report, у Rukh — output report (см. [`Model`]). Итого 17 байт
+//! вместе с Report ID:
 //!
 //! ```text
 //! [0]  0x08        Report ID (а не «маркер пакета»!)
@@ -15,13 +16,16 @@
 //! [16] checksum    0x55 − Σ[0..16]
 //! ```
 //!
-//! Ответ приходит **Input report 0x09** (Usage Page 0xFF01) того же формата:
-//! `[0x09][cmd][status][addr_hi][addr_lo][len][data×10][checksum]`,
+//! Ответ — input report того же формата: у Edge Air Ultra с ID **0x09**
+//! (Usage Page 0xFF01), у Rukh — с тем же ID **0x08**:
+//! `[id][cmd][status][addr_hi][addr_lo][len][data×10][checksum]`,
 //! `status == 0` — успех.
+//!
+//! [`Model`]: super::model::Model
 
-/// Report ID запроса (feature report).
+/// Report ID запроса.
 pub const REPORT_ID: u8 = 0x08;
-/// Report ID ответа (input report).
+/// Report ID ответа у Edge Air Ultra (у Rukh ответ приходит с [`REPORT_ID`]).
 pub const RESPONSE_ID: u8 = 0x09;
 /// Размер пакета с Report ID (`HidD_SetFeature(..., 0x11)`).
 pub const PACKET_SIZE: usize = 17;
@@ -45,8 +49,18 @@ pub mod cmd {
     pub const READ_EEPROM: u8 = 0x08;
     /// Сброс к заводским настройкам (кнопка «Reset» оригинала).
     pub const FACTORY_RESET: u8 = 0x09;
+    /// Событие от мыши без запроса: data[0] — битовая маска изменений
+    /// (b0 DPI, b1 частота, b2 профиль, b3 индикатор DPI, b5 подсветка,
+    /// b6 батарея) — `CS_GetDeviceStatusChanged` в `HIDUsb.dll` Rukh.
+    pub const STATUS_CHANGED: u8 = 0x0A;
     /// Номер текущего профиля.
     pub const CURRENT_PROFILE: u8 = 0x0E;
+
+    /// Команды, которые ничего не меняют в мыши, — только они разрешены
+    /// в режиме `--read-only`.
+    pub fn is_read_only(cmd: u8) -> bool {
+        matches!(cmd, CONNECT_STATUS | BATTERY | READ_EEPROM | CURRENT_PROFILE)
+    }
 }
 
 /// Контрольная сумма JM03: `0x55 − Σ bytes` (mod 256).
@@ -119,7 +133,7 @@ impl Packet {
     }
 }
 
-/// Разобранный ответ устройства (input report 0x09).
+/// Разобранный ответ устройства.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response {
     pub cmd: u8,
@@ -130,10 +144,11 @@ pub struct Response {
 }
 
 impl Response {
-    /// Разбирает сырой input report. `None` — не ответ JM03 (например, отчёт
-    /// клавиатуры/мультимедиа с того же интерфейса) или битая контрольная сумма.
-    pub fn parse(report: &[u8]) -> Option<Self> {
-        if report.len() < PACKET_SIZE || report[0] != RESPONSE_ID {
+    /// Разбирает сырой input report с Report ID ответа `id`. `None` — не ответ
+    /// JM03 (например, отчёт клавиатуры/мультимедиа с того же интерфейса) или
+    /// битая контрольная сумма.
+    pub fn parse(report: &[u8], id: u8) -> Option<Self> {
+        if report.len() < PACKET_SIZE || report[0] != id {
             return None;
         }
         if report[PACKET_SIZE - 1] != checksum(&report[..PACKET_SIZE - 1]) {
@@ -150,10 +165,10 @@ impl Response {
         })
     }
 
-    /// Собирает ответ (для симулятора и тестов).
-    pub fn build(cmd: u8, status: u8, addr: u16, data: &[u8]) -> [u8; PACKET_SIZE] {
+    /// Собирает ответ с Report ID `id` (для симулятора и тестов).
+    pub fn build(id: u8, cmd: u8, status: u8, addr: u16, data: &[u8]) -> [u8; PACKET_SIZE] {
         let mut buf = [0u8; PACKET_SIZE];
-        buf[0] = RESPONSE_ID;
+        buf[0] = id;
         buf[1] = cmd;
         buf[2] = status;
         buf[3] = (addr >> 8) as u8;
@@ -232,12 +247,12 @@ mod tests {
 
     #[test]
     fn parses_live_responses() {
-        let r = Response::parse(&LIVE_BATTERY).unwrap();
+        let r = Response::parse(&LIVE_BATTERY, RESPONSE_ID).unwrap();
         assert_eq!(r.cmd, cmd::BATTERY);
         assert_eq!(r.status, 0);
         assert_eq!(r.payload(), &[40, 0]);
 
-        let r = Response::parse(&LIVE_READ0).unwrap();
+        let r = Response::parse(&LIVE_READ0, RESPONSE_ID).unwrap();
         assert_eq!(r.cmd, cmd::READ_EEPROM);
         assert_eq!(r.payload()[..6], [0x01, 0x54, 0x06, 0x4F, 0x01, 0x54]);
     }
@@ -246,14 +261,38 @@ mod tests {
     fn rejects_foreign_or_broken_reports() {
         let mut bad = LIVE_BATTERY;
         bad[16] ^= 1;
-        assert!(Response::parse(&bad).is_none());
+        assert!(Response::parse(&bad, RESPONSE_ID).is_none());
         // отчёт boot-клавиатуры (ID 1) с того же интерфейса
-        assert!(Response::parse(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).is_none());
+        assert!(Response::parse(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], RESPONSE_ID).is_none());
+    }
+
+    #[test]
+    fn rukh_status_changed_event() {
+        // Нажатие кнопки DPI на Rukh (hid-recorder, 3554:f53e): input 0x08,
+        // cmd 0x0A, data[0] = 0x01 — «сменилась ступень DPI».
+        const DPI_PRESSED: [u8; 17] = [
+            0x08, 0x0A, 0x00, 0x00, 0x00, 0x0A, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x38,
+        ];
+        let r = Response::parse(&DPI_PRESSED, REPORT_ID).unwrap();
+        assert_eq!(r.cmd, cmd::STATUS_CHANGED);
+        assert_eq!(r.payload()[0], 0x01);
+        // как ответ Edge (ID 0x09) этот отчёт не принимается
+        assert!(Response::parse(&DPI_PRESSED, RESPONSE_ID).is_none());
+    }
+
+    #[test]
+    fn read_only_commands() {
+        assert!(cmd::is_read_only(cmd::READ_EEPROM));
+        assert!(cmd::is_read_only(cmd::BATTERY));
+        assert!(!cmd::is_read_only(cmd::WRITE_EEPROM));
+        assert!(!cmd::is_read_only(cmd::FACTORY_RESET));
+        assert!(!cmd::is_read_only(cmd::DRIVER_STATUS));
     }
 
     #[test]
     fn build_roundtrip() {
-        let raw = Response::build(cmd::BATTERY, 0, 0, &[40, 0]);
+        let raw = Response::build(RESPONSE_ID, cmd::BATTERY, 0, 0, &[40, 0]);
         assert_eq!(raw, LIVE_BATTERY);
     }
 }

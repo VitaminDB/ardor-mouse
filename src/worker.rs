@@ -3,9 +3,11 @@
 //! Сигналы здесь только пишутся — читать их из фонового потока нельзя.
 
 use crate::protocol::eeprom::DeviceConfig;
+use crate::protocol::model::Model;
 use crate::transport::hidraw::HidrawTransport;
 use crate::transport::sim::SimTransport;
 use crate::transport::{Battery, Device, Error};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use syngui::prelude::*;
@@ -14,6 +16,17 @@ use syngui::prelude::*;
 const POLL: Duration = Duration::from_secs(2);
 /// Период опроса батареи.
 const BATTERY_POLL: Duration = Duration::from_secs(30);
+
+/// Параметры запуска из командной строки.
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    /// `--simulate [rukh]` — симулятор вместо /dev/hidraw*.
+    pub simulate: Option<Model>,
+    /// `--read-only` — в мышь уходят только команды чтения.
+    pub read_only: bool,
+    /// `--dump FILE` — сохранить сырой образ профиля, прочитанный первым.
+    pub dump: Option<PathBuf>,
+}
 
 pub enum Job {
     /// Перечитать профиль с мыши (правки в UI будут заменены).
@@ -57,6 +70,8 @@ impl Notice {
 #[derive(Clone, Copy)]
 pub struct Sink {
     pub link: RwSignal<Link>,
+    /// Модель найденной мыши (до подключения — `None`).
+    pub model: RwSignal<Option<Model>>,
     pub device_name: RwSignal<String>,
     pub battery: RwSignal<Option<Battery>>,
     /// Профиль, который сейчас записан в мыши.
@@ -85,17 +100,21 @@ impl Sink {
     }
 }
 
-pub fn spawn(sink: Sink, simulate: bool, rx: Receiver<Job>) {
+pub fn spawn(sink: Sink, opts: Options, rx: Receiver<Job>) {
     std::thread::Builder::new()
         .name("ardor-device".into())
-        .spawn(move || Worker { sink, simulate, dev: None, need_read: true, last_battery: None }.run(rx))
+        .spawn(move || {
+            Worker { sink, opts, dev: None, need_read: true, last_battery: None, dumped: false }.run(rx)
+        })
         .expect("не удалось запустить поток устройства");
 }
 
 struct Worker {
     sink: Sink,
-    simulate: bool,
+    opts: Options,
     dev: Option<Device>,
+    /// Образ для `--dump` уже сохранён (пишется один раз — до любых записей).
+    dumped: bool,
     need_read: bool,
     last_battery: Option<Instant>,
 }
@@ -118,8 +137,8 @@ impl Worker {
     }
 
     fn try_open(&mut self) {
-        let opened = if self.simulate {
-            let mut sim = SimTransport::new();
+        let opened = if let Some(model) = self.opts.simulate {
+            let mut sim = SimTransport::with_model(model);
             sim.latency = Duration::from_millis(4);
             Ok(Device::new(Box::new(sim)))
         } else {
@@ -127,6 +146,8 @@ impl Worker {
         };
         match opened {
             Ok(d) => {
+                let d = d.read_only(self.opts.read_only);
+                self.sink.model.set(Some(d.model()));
                 self.sink.device_name.set(d.name());
                 self.dev = Some(d);
                 self.need_read = true;
@@ -177,8 +198,13 @@ impl Worker {
     fn read(&mut self, force: bool) {
         let Some(dev) = self.dev.as_mut() else { return };
         self.sink.busy.set(Some("Чтение настроек мыши…".into()));
-        let res = dev.read_config();
+        let model = dev.model();
+        let res = dev.read_profile();
         self.sink.busy.set(None);
+        if let Ok(mem) = &res {
+            self.dump(mem);
+        }
+        let res = res.map(|mem| DeviceConfig::decode(&mem, model));
         match res {
             Ok((cfg, warn)) => {
                 self.need_read = false;
@@ -202,6 +228,25 @@ impl Worker {
         }
     }
 
+    /// `--dump`: первый прочитанный образ — в файл. Существующий файл не
+    /// перезаписывается, чтобы не потерять снимок от прошлого запуска.
+    fn dump(&mut self, mem: &[u8]) {
+        let Some(path) = self.opts.dump.as_ref().filter(|_| !self.dumped) else { return };
+        self.dumped = true;
+        let res = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, mem));
+        match res {
+            Ok(()) => eprintln!("образ профиля ({} байт) сохранён в {}", mem.len(), path.display()),
+            Err(e) => {
+                eprintln!("не удалось сохранить образ в {}: {e}", path.display());
+                self.sink.notify(NoticeKind::Error, format!("Дамп не сохранён: {e}"));
+            }
+        }
+    }
+
     fn handle(&mut self, job: Job) {
         match job {
             Job::Refresh => {
@@ -216,6 +261,9 @@ impl Worker {
     }
 
     fn apply(&mut self, new: DeviceConfig, old: DeviceConfig) {
+        if self.opts.read_only {
+            return self.sink.notify(NoticeKind::Error, "Режим только чтения — запись отключена");
+        }
         if let Err(msg) = new.validate() {
             return self.sink.notify(NoticeKind::Error, msg);
         }

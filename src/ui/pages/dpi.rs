@@ -1,7 +1,6 @@
 //! Страница DPI: ступени, значение, цвет индикатора, активная ступень.
 
-use crate::protocol::dpi;
-use crate::protocol::eeprom::DPI_SLOTS;
+use crate::protocol::dpi::Sensor;
 use crate::protocol::led::Rgb;
 use crate::ui::app::AppCtx;
 use crate::ui::icons;
@@ -24,13 +23,25 @@ const PALETTE: [Rgb; 8] = [
     Rgb::new(255, 255, 255),
 ];
 
+/// Подпись под шкалой: сетка значений сенсора.
+fn grid_hint(sensor: Sensor) -> &'static str {
+    match sensor {
+        Sensor::Pmw3370 => "шаг 50 до 10 000, дальше 100",
+        Sensor::Paw3950 => "шаг 50",
+    }
+}
+
 pub fn view(ctx: AppCtx) -> impl Widget {
+    let sensor = ctx.sink.edit.get_untracked().model.sensor();
     Column::new()
         .gap(18.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(page_header(
             "DPI",
-            "Ступени чувствительности сенсора PMW3370. Кнопка DPI на мыши переключает их по кругу.",
+            &format!(
+                "Ступени чувствительности сенсора {}. Кнопка DPI на мыши переключает их по кругу.",
+                sensor.name()
+            ),
         ))
         .child(card(
             "Ступени",
@@ -45,6 +56,7 @@ fn levels_row(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
         let count = cfg.dpi_count as usize;
+        let max = cfg.model.max_dpi_stages();
         let sel = ctx.sel_level.get().min(count - 1);
         let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         for i in 0..count {
@@ -81,9 +93,9 @@ fn levels_row(ctx: AppCtx) -> impl Widget {
                 .child(
                     ToolButton::new(icons::ADD)
                         .tooltip("Добавить ступень")
-                        .disabled(count >= DPI_SLOTS)
+                        .disabled(count >= max as usize)
                         .on_click(move || {
-                            c_add.edit(|c| c.dpi_count = (c.dpi_count + 1).min(DPI_SLOTS as u8));
+                            c_add.edit(|c| c.dpi_count = (c.dpi_count + 1).min(max));
                             c_add.sel_level.set(count);
                         })
                         .class("count-btn"),
@@ -107,6 +119,7 @@ fn levels_row(ctx: AppCtx) -> impl Widget {
 fn editor(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
+        let sensor = cfg.model.sensor();
         let i = ctx.sel_level.get().min(cfg.dpi_count as usize - 1);
         let lvl = cfg.dpi[i];
         let is_active = i == cfg.dpi_active as usize;
@@ -183,21 +196,21 @@ fn editor(ctx: AppCtx) -> impl Widget {
             .child(
                 Slider::new()
                     .value(lvl.dpi as f32)
-                    .range(dpi::MIN as f32, dpi::MAX as f32)
+                    .range(sensor.min() as f32, sensor.max() as f32)
                     .step(50.0)
                     .on_change(move |v| {
-                        let v = dpi::snap(v.round() as u16);
+                        let v = sensor.snap(v.round() as u16);
                         c_slider.edit(|c| c.dpi[i].dpi = v)
                     })
                     .class("dpi-slider"),
             )
             .child(
                 Row::new()
-                    .child(Text::new(format!("{}", dpi::MIN)).class("scale-label"))
+                    .child(Text::new(format!("{}", sensor.min())).class("scale-label"))
                     .child(DecoratedBox::new().class("grow"))
-                    .child(Text::new("шаг 50 до 10 000, дальше 100").class("scale-label"))
+                    .child(Text::new(grid_hint(sensor)).class("scale-label"))
                     .child(DecoratedBox::new().class("grow"))
-                    .child(Text::new(format!("{}", dpi::MAX)).class("scale-label")),
+                    .child(Text::new(format!("{}", sensor.max())).class("scale-label")),
             )
             .child(presets)
             .child(Text::new("Цвет индикатора ступени").class("field-label"))

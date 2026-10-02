@@ -1,26 +1,23 @@
 //! Реальный транспорт через `/dev/hidrawN`.
 //!
-//! У приёмника два HID-интерфейса с одинаковыми VID/PID:
-//! * `:1.0` — boot-мышь (только движение/кнопки);
-//! * `:1.1` — клавиатура + vendor-коллекции, в т.ч. **feature report 0x08**
-//!   (команды) и **input report 0x09** (ответы).
+//! У приёмника несколько HID-интерфейсов с одинаковыми VID/PID; командный
+//! определяется по report descriptor — в нём есть репорт 0x08 нужного вида:
 //!
-//! Нужный интерфейс определяется по report descriptor: в нём должен быть
-//! feature report с ID 0x08. Команды отправляются `ioctl(HIDIOCSFEATURE(17))`
-//! (аналог `HidD_SetFeature`), а не `write()` — у интерфейса нет OUT-репортов.
+//! * **Edge Air Ultra** (25a7:fa7c) — `:1.0` boot-мышь, `:1.1` клавиатура +
+//!   vendor-коллекции с **feature report 0x08** (команды) и input 0x09
+//!   (ответы). Команды уходят `ioctl(HIDIOCSFEATURE(17))` (аналог
+//!   `HidD_SetFeature`) — OUT-репортов у интерфейса нет.
+//! * **Rukh** (3554:f53e) — `:1.0` boot-клавиатура, `:1.1` vendor-коллекции с
+//!   **output + input report 0x08**, `:1.2` мышь. Команды уходят `write()`
+//!   (аналог `WriteFile` в `HIDUsb.dll`), ответ — input report 0x08.
 
 use super::{Error, Result, Transport};
+use crate::protocol::model::{CommandReport, Model};
 use crate::protocol::packet::{Packet, PACKET_SIZE, REPORT_ID};
 use std::ffi::CString;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
-
-pub const VID: u16 = 0x25A7;
-/// Проводное подключение.
-pub const PID_WIRED: u16 = 0xFA7B;
-/// 2.4G-приёмник.
-pub const PID_DONGLE: u16 = 0xFA7C;
 
 /// `_IOC(_IOC_READ|_IOC_WRITE, 'H', 0x06, len)` из `<linux/hidraw.h>`.
 const fn hidiocsfeature(len: usize) -> libc::c_ulong {
@@ -30,6 +27,7 @@ const fn hidiocsfeature(len: usize) -> libc::c_ulong {
 pub struct HidrawTransport {
     fd: libc::c_int,
     path: String,
+    model: Model,
     pid: u16,
 }
 
@@ -37,10 +35,11 @@ pub struct HidrawTransport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
     pub path: String,
+    pub model: Model,
     pub pid: u16,
 }
 
-/// Ищет командный интерфейс мыши среди `/sys/class/hidraw/*`.
+/// Ищет командный интерфейс поддерживаемой мыши среди `/sys/class/hidraw/*`.
 pub fn find() -> Option<Candidate> {
     let mut entries: Vec<_> = std::fs::read_dir("/sys/class/hidraw").ok()?.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
@@ -49,12 +48,10 @@ pub fn find() -> Option<Candidate> {
         let dev = e.path().join("device");
         let Ok(uevent) = std::fs::read_to_string(dev.join("uevent")) else { continue };
         let Some((vid, pid)) = parse_hid_id(&uevent) else { continue };
-        if vid != VID || (pid != PID_DONGLE && pid != PID_WIRED) {
-            continue;
-        }
+        let Some(model) = Model::from_usb(vid, pid) else { continue };
         let Ok(desc) = std::fs::read(dev.join("report_descriptor")) else { continue };
-        if has_feature_report(&desc, REPORT_ID) {
-            return Some(Candidate { path: format!("/dev/{name}"), pid });
+        if is_command_interface(&desc, model) {
+            return Some(Candidate { path: format!("/dev/{name}"), model, pid });
         }
     }
     None
@@ -70,8 +67,25 @@ fn parse_hid_id(uevent: &str) -> Option<(u16, u16)> {
     Some((vid as u16, pid as u16))
 }
 
-/// Есть ли в report descriptor FEATURE-элемент (0xB1) под Report ID `id`.
-fn has_feature_report(desc: &[u8], id: u8) -> bool {
+/// Главные элементы report descriptor (тег без битов размера).
+#[derive(Clone, Copy)]
+enum MainItem {
+    Output = 0x90,
+    Feature = 0xB0,
+}
+
+/// Командный ли это интерфейс мыши `model`: репорт 0x08 того вида, которым
+/// эта модель принимает команды.
+fn is_command_interface(desc: &[u8], model: Model) -> bool {
+    let kind = match model.command_report() {
+        CommandReport::Feature => MainItem::Feature,
+        CommandReport::Output => MainItem::Output,
+    };
+    has_report(desc, REPORT_ID, kind)
+}
+
+/// Есть ли в report descriptor элемент `kind` под Report ID `id`.
+fn has_report(desc: &[u8], id: u8, kind: MainItem) -> bool {
     let mut i = 0;
     let mut cur_id = 0u8;
     while i < desc.len() {
@@ -89,7 +103,7 @@ fn has_feature_report(desc: &[u8], id: u8) -> bool {
         let tag = prefix & 0xFC;
         match tag {
             0x84 => cur_id = *desc.get(i + 1).unwrap_or(&0), // Report ID
-            0xB0 if cur_id == id => return true,             // Feature
+            t if t == kind as u8 && cur_id == id => return true,
             _ => {}
         }
         i += 1 + size;
@@ -100,10 +114,10 @@ fn has_feature_report(desc: &[u8], id: u8) -> bool {
 impl HidrawTransport {
     pub fn open() -> Result<Self> {
         let c = find().ok_or(Error::NotFound)?;
-        Self::open_path(&c.path, c.pid)
+        Self::open_path(&c.path, c.model, c.pid)
     }
 
-    pub fn open_path(path: &str, pid: u16) -> Result<Self> {
+    pub fn open_path(path: &str, model: Model, pid: u16) -> Result<Self> {
         let cpath = CString::new(path).map_err(|_| Error::NotFound)?;
         let fd = unsafe { libc::open(cpath.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC | libc::O_NONBLOCK) };
         if fd < 0 {
@@ -114,18 +128,36 @@ impl HidrawTransport {
                 _ => Error::Io(e),
             });
         }
-        Ok(Self { fd, path: path.to_string(), pid })
+        Ok(Self { fd, path: path.to_string(), model, pid })
     }
 
     pub fn is_dongle(&self) -> bool {
-        self.pid == PID_DONGLE
+        self.pid == self.model.pid_dongle()
     }
 }
 
 impl Transport for HidrawTransport {
-    fn send_feature(&mut self, pkt: &Packet) -> Result<()> {
+    fn model(&self) -> Model {
+        self.model
+    }
+
+    fn send(&mut self, pkt: &Packet) -> Result<()> {
         let mut buf = pkt.0;
-        let rc = unsafe { libc::ioctl(self.fd, hidiocsfeature(PACKET_SIZE), buf.as_mut_ptr()) };
+        let rc = match self.model.command_report() {
+            CommandReport::Feature => unsafe {
+                libc::ioctl(self.fd, hidiocsfeature(PACKET_SIZE), buf.as_mut_ptr())
+            },
+            CommandReport::Output => {
+                let n = unsafe { libc::write(self.fd, buf.as_ptr().cast(), PACKET_SIZE) };
+                if n >= 0 && n as usize != PACKET_SIZE {
+                    return Err(Error::Io(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        format!("записано {n} байт из {PACKET_SIZE}"),
+                    )));
+                }
+                n as libc::c_int
+            }
+        };
         if rc < 0 {
             let e = io::Error::last_os_error();
             // Устройство выдернули — пусть верхний уровень переподключится.
@@ -169,6 +201,7 @@ impl Transport for HidrawTransport {
 
     fn name(&self) -> String {
         let kind = if self.is_dongle() { "2.4G-приёмник" } else { "USB-кабель" };
+        let kind = format!("{} · {kind}", self.model.name());
         let dev = Path::new(&self.path).file_name().map(|s| s.to_string_lossy().into_owned());
         format!("{kind} · {}", dev.unwrap_or_default())
     }
@@ -207,14 +240,55 @@ mod tests {
         assert_eq!(hidiocsfeature(17), 0xC011_4806);
     }
 
+    /// Report descriptors живого приёмника Rukh 3554:f53e (hid-decode).
+    const RUKH_IF0: &[u8] = &[
+        0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x05, 0x08, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25,
+        0x01, 0x75, 0x01, 0x95, 0x03, 0x91, 0x02, 0x95, 0x05, 0x91, 0x01, 0x05, 0x07, 0x19, 0xE0,
+        0x29, 0xE7, 0x95, 0x08, 0x81, 0x02, 0x75, 0x08, 0x95, 0x01, 0x81, 0x01, 0x05, 0x07, 0x19,
+        0x00, 0x2A, 0xFF, 0x00, 0x26, 0xFF, 0x00, 0x95, 0x06, 0x81, 0x00, 0xC0,
+    ];
+    const RUKH_IF1: &[u8] = &[
+        0x06, 0x05, 0xFF, 0x09, 0x00, 0xA1, 0x01, 0x85, 0x10, 0x09, 0x00, 0x15, 0x00, 0x26, 0xFF,
+        0x00, 0x75, 0x08, 0x95, 0x07, 0x81, 0x02, 0xC0, 0x06, 0x03, 0xFF, 0x09, 0x00, 0xA1, 0x01,
+        0x85, 0x02, 0x09, 0x00, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x07, 0x81, 0x02,
+        0xC0, 0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x05, 0x15, 0x00, 0x26, 0x3C, 0x02, 0x19,
+        0x00, 0x2A, 0x3C, 0x02, 0x75, 0x10, 0x95, 0x01, 0x81, 0x00, 0xC0, 0x05, 0x01, 0x09, 0x80,
+        0xA1, 0x01, 0x85, 0x03, 0x19, 0x81, 0x29, 0x83, 0x15, 0x00, 0x25, 0x01, 0x95, 0x03, 0x75,
+        0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05, 0x81, 0x01, 0xC0, 0x06, 0x02, 0xFF, 0x09, 0x02,
+        0xA1, 0x01, 0x85, 0x08, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x10, 0x09, 0x02,
+        0x81, 0x00, 0x09, 0x02, 0x91, 0x00, 0xC0, 0x06, 0x04, 0xFF, 0x09, 0x02, 0xA1, 0x01, 0x85,
+        0x06, 0x09, 0x02, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x07, 0xB1, 0x02, 0xC0,
+        0x06, 0x06, 0xFF, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x09, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75,
+        0x08, 0x95, 0x30, 0x09, 0x02, 0x81, 0x00, 0x09, 0x02, 0x91, 0x00, 0xC0,
+    ];
+    const RUKH_IF2: &[u8] = &[
+        0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x09, 0x01, 0xA1, 0x00, 0x05, 0x09, 0x19, 0x01, 0x29,
+        0x05, 0x15, 0x00, 0x25, 0x01, 0x95, 0x05, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x03,
+        0x81, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x16, 0x00, 0x80, 0x26, 0xFF, 0x7F, 0x75,
+        0x10, 0x95, 0x02, 0x81, 0x06, 0xC0, 0xA1, 0x00, 0x05, 0x01, 0x09, 0x38, 0x15, 0x81, 0x25,
+        0x7F, 0x75, 0x08, 0x95, 0x01, 0x81, 0x06, 0xC0, 0xA1, 0x00, 0x05, 0x0C, 0x0A, 0x38, 0x02,
+        0x95, 0x01, 0x75, 0x08, 0x15, 0x81, 0x25, 0x7F, 0x81, 0x06, 0xC0, 0xC0,
+    ];
+
     #[test]
     fn detects_command_interface() {
-        assert!(has_feature_report(DESC_IF1, 0x08));
-        assert!(has_feature_report(DESC_IF1, 0x06));
-        assert!(!has_feature_report(DESC_IF1, 0x09)); // 0x09 — input
+        assert!(has_report(DESC_IF1, 0x08, MainItem::Feature));
+        assert!(has_report(DESC_IF1, 0x06, MainItem::Feature));
+        assert!(!has_report(DESC_IF1, 0x09, MainItem::Feature)); // 0x09 — input
+        assert!(is_command_interface(DESC_IF1, Model::EdgeAirUltra));
         // boot-мышь (:1.0) — без feature-репортов
         let mouse = [0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x09, 0x01, 0x81, 0x02, 0xC0];
-        assert!(!has_feature_report(&mouse, 0x08));
+        assert!(!is_command_interface(&mouse, Model::EdgeAirUltra));
+    }
+
+    #[test]
+    fn detects_rukh_command_interface() {
+        assert!(is_command_interface(RUKH_IF1, Model::Rukh));
+        // у Rukh 0x08 — output, а не feature: как Edge этот интерфейс не берётся
+        assert!(!is_command_interface(RUKH_IF1, Model::EdgeAirUltra));
+        // boot-клавиатура: output-репорт светодиодов без Report ID — не наш
+        assert!(!is_command_interface(RUKH_IF0, Model::Rukh));
+        assert!(!is_command_interface(RUKH_IF2, Model::Rukh));
     }
 
     #[test]
