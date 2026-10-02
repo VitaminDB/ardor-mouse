@@ -76,7 +76,7 @@ pub fn placeholder(link: Link) -> impl Widget {
             "Нет доступа к устройству",
             format!("У пользователя нет прав на {path}. Установите udev-правило и переподключите приёмник:"),
             Some(
-                "sudo cp 99-ardor-mouse.rules /etc/udev/rules.d/\n\
+                "sudo cp packaging/70-ardor-mouse.rules /etc/udev/rules.d/\n\
                  sudo udevadm control --reload-rules && sudo udevadm trigger"
                     .into(),
             ),
