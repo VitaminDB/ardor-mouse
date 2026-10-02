@@ -1,14 +1,21 @@
 //! Страница назначения кнопок.
 
 use crate::protocol::buttons::{ButtonAction, PHYSICAL};
+use crate::protocol::model::Model;
 use crate::ui::app::AppCtx;
 use crate::ui::icons;
 use crate::ui::widgets::{page_header, reactive};
 use syngui::prelude::*;
 
-const SCHEME_PNG: &[u8] = include_bytes!("../../../assets/skins/0806/mouse_nr.png");
+const EDGE_SCHEME_PNG: &[u8] = include_bytes!("../../../assets/skins/0806/mouse_nr.png");
+/// Фото из утилиты Rukh с номерами в стиле схемы Edge (порядок — [`PHYSICAL`]).
+const RUKH_SCHEME_PNG: &[u8] = include_bytes!("../../../assets/skins/rukh/mouse_nr.png");
 
 pub fn view(ctx: AppCtx) -> impl Widget {
+    let (scheme_id, scheme) = match ctx.sink.edit.get_untracked().model {
+        Model::EdgeAirUltra => ("buttons-scheme-edge", EDGE_SCHEME_PNG),
+        Model::Rukh => ("buttons-scheme-rukh", RUKH_SCHEME_PNG),
+    };
     Column::new()
         .gap(18.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -23,7 +30,7 @@ pub fn view(ctx: AppCtx) -> impl Widget {
                 .child(
                     DecoratedBox::new()
                         .child(
-                            Image::from_bytes("buttons-scheme", SCHEME_PNG.to_vec())
+                            Image::from_bytes(scheme_id, scheme.to_vec())
                                 .fit(ImageFit::Contain)
                                 .class("scheme-img"),
                         )

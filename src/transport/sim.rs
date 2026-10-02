@@ -4,11 +4,13 @@
 
 use super::{Result, Transport};
 use crate::protocol::eeprom::DeviceConfig;
+use crate::protocol::model::Model;
 use crate::protocol::packet::{cmd, Packet, Response, MAX_DATA};
 use std::collections::VecDeque;
 use std::time::Duration;
 
 pub struct SimTransport {
+    pub model: Model,
     pub mem: [u8; 0x200],
     /// Мышь «спит»: приёмник отвечает, но на чтение/запись EEPROM — тишина.
     pub asleep: bool,
@@ -20,13 +22,20 @@ pub struct SimTransport {
 }
 
 impl SimTransport {
+    /// Симулятор Edge Air Ultra.
     pub fn new() -> Self {
+        Self::with_model(Model::EdgeAirUltra)
+    }
+
+    /// Симулятор мыши `model` с заводским профилем.
+    pub fn with_model(model: Model) -> Self {
         let mut mem = [0xFFu8; 0x200];
-        for r in DeviceConfig::default().regions() {
+        for r in DeviceConfig::factory(model).regions() {
             let a = r.addr as usize;
             mem[a..a + r.data.len()].copy_from_slice(&r.data);
         }
         Self {
+            model,
             mem,
             asleep: false,
             battery: 76,
@@ -44,7 +53,11 @@ impl Default for SimTransport {
 }
 
 impl Transport for SimTransport {
-    fn send_feature(&mut self, pkt: &Packet) -> Result<()> {
+    fn model(&self) -> Model {
+        self.model
+    }
+
+    fn send(&mut self, pkt: &Packet) -> Result<()> {
         if !pkt.verify() {
             // Живое устройство молча игнорирует пакеты с битой суммой.
             return Ok(());
@@ -53,10 +66,11 @@ impl Transport for SimTransport {
             std::thread::sleep(self.latency);
         }
         let addr = pkt.addr() as usize;
+        let id = self.model.response_id();
         let reply = match pkt.cmd() {
-            cmd::CONNECT_STATUS => Some(Response::build(cmd::CONNECT_STATUS, 0, 0, &[!self.asleep as u8])),
+            cmd::CONNECT_STATUS => Some(Response::build(id, cmd::CONNECT_STATUS, 0, 0, &[!self.asleep as u8])),
             cmd::BATTERY => {
-                Some(Response::build(cmd::BATTERY, 0, 0, &[self.battery, self.charging as u8]))
+                Some(Response::build(id, cmd::BATTERY, 0, 0, &[self.battery, self.charging as u8]))
             }
             cmd::READ_EEPROM if !self.asleep => {
                 let n = pkt.len().min(MAX_DATA);
@@ -64,7 +78,7 @@ impl Transport for SimTransport {
                 if let Some(src) = self.mem.get(addr..addr + n) {
                     data[..n].copy_from_slice(src);
                 }
-                Some(Response::build(cmd::READ_EEPROM, 0, pkt.addr(), &data[..n]))
+                Some(Response::build(id, cmd::READ_EEPROM, 0, pkt.addr(), &data[..n]))
             }
             cmd::WRITE_EEPROM if !self.asleep => {
                 let data = pkt.data();
@@ -75,7 +89,7 @@ impl Transport for SimTransport {
                     }
                     None => 1,
                 };
-                Some(Response::build(cmd::WRITE_EEPROM, status, pkt.addr(), &[]))
+                Some(Response::build(id, cmd::WRITE_EEPROM, status, pkt.addr(), &[]))
             }
             _ => None,
         };
@@ -97,7 +111,7 @@ impl Transport for SimTransport {
     }
 
     fn name(&self) -> String {
-        "симулятор".into()
+        format!("симулятор {}", self.model.name())
     }
 
 }

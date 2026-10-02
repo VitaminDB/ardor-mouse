@@ -2,7 +2,7 @@
 name = "ardor_mouse"
 version = "0.2.0"
 edition = "2021"
-description = "Linux configuration tool for the ARDOR GAMING Edge Air Ultra mouse"
+description = "Linux configuration tool for ARDOR GAMING mice (Edge Air Ultra, Rukh)"
 license = "MIT"
 repository = "https://github.com/VitaminDB/ardor-mouse"
 

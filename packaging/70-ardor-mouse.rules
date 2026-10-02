@@ -1,3 +1,7 @@
-# ARDOR GAMING Edge Air Ultra — доступ к командному hidraw-интерфейсу для вошедшего пользователя.
+# ARDOR GAMING — доступ к командному hidraw-интерфейсу мыши для вошедшего пользователя.
+# Edge Air Ultra: 2.4G-приёмник / кабель
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="25a7", ATTRS{idProduct}=="fa7c", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="25a7", ATTRS{idProduct}=="fa7b", TAG+="uaccess"
+# Rukh: 2.4G-приёмник / кабель
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="f53e", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="f53d", TAG+="uaccess"

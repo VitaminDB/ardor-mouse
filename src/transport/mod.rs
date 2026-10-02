@@ -3,7 +3,10 @@
 pub mod hidraw;
 pub mod sim;
 
-use crate::protocol::eeprom::{DecodeWarnings, DeviceConfig, Region, PROFILE_LEN};
+use crate::protocol::eeprom::Region;
+#[cfg(test)]
+use crate::protocol::eeprom::{DecodeWarnings, DeviceConfig};
+use crate::protocol::model::Model;
 use crate::protocol::packet::{cmd, to_hex, Packet, Response, MAX_DATA};
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -17,7 +20,7 @@ const WRITE_GAP: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 pub enum Error {
-    /// Приёмник 25a7:fa7c / мышь 25a7:fa7b не подключены.
+    /// Ни одна поддерживаемая мышь / её приёмник не подключены.
     NotFound,
     /// Нет прав на `/dev/hidrawN` (нужно udev-правило).
     Permission(String),
@@ -26,6 +29,8 @@ pub enum Error {
     Timeout { cmd: u8 },
     /// Устройство ответило ошибкой.
     Rejected { cmd: u8, status: u8 },
+    /// Режим `--read-only`: команда изменила бы мышь и не отправлена.
+    ReadOnly { cmd: u8 },
 }
 
 impl fmt::Display for Error {
@@ -40,6 +45,9 @@ impl fmt::Display for Error {
             Error::Rejected { cmd, status } => {
                 write!(f, "мышь отклонила команду 0x{cmd:02X} (статус 0x{status:02X})")
             }
+            Error::ReadOnly { cmd } => {
+                write!(f, "режим только чтения: команда 0x{cmd:02X} не отправлена")
+            }
         }
     }
 }
@@ -52,9 +60,11 @@ impl From<std::io::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Низкоуровневый канал: отправка feature report 0x08 и чтение input reports.
+/// Низкоуровневый канал: отправка команды (report 0x08) и чтение input reports.
 pub trait Transport: Send {
-    fn send_feature(&mut self, pkt: &Packet) -> Result<()>;
+    /// Мышь на том конце — от неё зависят формат обмена и разбор памяти.
+    fn model(&self) -> Model;
+    fn send(&mut self, pkt: &Packet) -> Result<()>;
     /// Следующий input report или `None` по таймауту.
     fn read_report(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>>;
     fn name(&self) -> String;
@@ -71,19 +81,35 @@ pub struct Device {
     t: Box<dyn Transport>,
     /// `ARDOR_TRACE=1` — печатать все пакеты в stderr.
     trace: bool,
+    /// Отправлять только команды, которые ничего не меняют в мыши.
+    read_only: bool,
 }
 
 impl Device {
     pub fn new(t: Box<dyn Transport>) -> Self {
-        Self { t, trace: std::env::var_os("ARDOR_TRACE").is_some() }
+        Self { t, trace: std::env::var_os("ARDOR_TRACE").is_some(), read_only: false }
+    }
+
+    /// Запретить всё, кроме чтения ([`cmd::is_read_only`]).
+    pub fn read_only(mut self, on: bool) -> Self {
+        self.read_only = on;
+        self
     }
 
     pub fn name(&self) -> String {
         self.t.name()
     }
 
+    pub fn model(&self) -> Model {
+        self.t.model()
+    }
+
     /// Отправить команду и дождаться ответа с тем же кодом (3 попытки).
     pub fn transact(&mut self, pkt: &Packet) -> Result<Response> {
+        if self.read_only && !cmd::is_read_only(pkt.cmd()) {
+            return Err(Error::ReadOnly { cmd: pkt.cmd() });
+        }
+        let response_id = self.t.model().response_id();
         let mut last = Error::Timeout { cmd: pkt.cmd() };
         for _ in 0..RETRIES {
             // Сбросить накопившиеся отчёты (клавиатура/мультимедиа того же интерфейса).
@@ -91,7 +117,7 @@ impl Device {
             if self.trace {
                 eprintln!("-> {}", pkt.to_hex());
             }
-            self.t.send_feature(pkt)?;
+            self.t.send(pkt)?;
             let deadline = Instant::now() + RESPONSE_TIMEOUT;
             loop {
                 let left = deadline.saturating_duration_since(Instant::now());
@@ -103,7 +129,7 @@ impl Device {
                 if self.trace {
                     eprintln!("<- {}", to_hex(&raw));
                 }
-                let Some(r) = Response::parse(&raw) else { continue };
+                let Some(r) = Response::parse(&raw, response_id) else { continue };
                 if r.cmd != pkt.cmd() {
                     continue;
                 }
@@ -153,10 +179,17 @@ impl Device {
         Ok(())
     }
 
+    /// Сырой образ профиля — столько байт, сколько читает оригинальная утилита.
+    pub fn read_profile(&mut self) -> Result<Vec<u8>> {
+        let len = self.model().profile_len();
+        self.read_eeprom(0, len)
+    }
+
     /// Прочитать и разобрать весь профиль.
+    #[cfg(test)]
     pub fn read_config(&mut self) -> Result<(DeviceConfig, DecodeWarnings)> {
-        let mem = self.read_eeprom(0, PROFILE_LEN)?;
-        Ok(DeviceConfig::decode(&mem))
+        let mem = self.read_profile()?;
+        Ok(DeviceConfig::decode(&mem, self.model()))
     }
 
     /// Записать изменённые участки. `progress(i, n, name)` — перед каждым.
@@ -182,6 +215,10 @@ mod tests {
 
     fn sim_device() -> Device {
         Device::new(Box::new(SimTransport::new()))
+    }
+
+    fn sim_rukh() -> Device {
+        Device::new(Box::new(SimTransport::with_model(Model::Rukh)))
     }
 
     #[test]
@@ -212,6 +249,36 @@ mod tests {
         let (back, warn) = d.read_config().unwrap();
         assert!(warn.is_empty(), "{warn:?}");
         assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn rukh_read_modify_write_cycle() {
+        let mut d = sim_rukh();
+        let (orig, warn) = d.read_config().unwrap();
+        assert!(warn.is_empty(), "{warn:?}");
+        assert_eq!(orig.model, Model::Rukh);
+
+        let mut cfg = orig.clone();
+        cfg.dpi[1].dpi = 26_000;
+        cfg.debounce_ms = 2;
+        d.write_regions(&cfg.changed_regions(&orig), |_, _, _| {}).unwrap();
+        let (back, _) = d.read_config().unwrap();
+        assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn read_only_blocks_writes_before_sending() {
+        let mut d = sim_rukh().read_only(true);
+        assert!(d.read_config().is_ok());
+        assert!(d.battery().is_ok());
+        assert!(matches!(d.write_eeprom(0x0C, &[1, 2]), Err(Error::ReadOnly { cmd: 0x07 })));
+        assert!(matches!(
+            d.transact(&Packet::simple(cmd::FACTORY_RESET)),
+            Err(Error::ReadOnly { cmd: 0x09 })
+        ));
+        // в память симулятора ничего не попало
+        let (cfg, _) = d.read_config().unwrap();
+        assert_eq!(cfg, DeviceConfig::factory(Model::Rukh));
     }
 
     #[test]

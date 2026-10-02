@@ -2,21 +2,37 @@
 
 use super::{icons, pages, widgets};
 use crate::protocol::eeprom::DeviceConfig;
+use crate::protocol::model::Model;
 use crate::transport::Battery;
-use crate::worker::{self, Job, Link, NoticeKind, Sink};
+use crate::worker::{self, Job, Link, NoticeKind, Options, Sink};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use syngui::prelude::*;
 
-const HERO_PNG: &[u8] = include_bytes!("../../assets/skins/0806/mouse_led.png");
+const EDGE_HERO_PNG: &[u8] = include_bytes!("../../assets/skins/0806/mouse_led.png");
+const RUKH_PNG: &[u8] = include_bytes!("../../assets/skins/rukh/mouse.png");
 
-/// Разделы навигации.
+/// Картинка мыши для боковой панели.
+fn hero_png(model: Model) -> (&'static str, &'static [u8]) {
+    match model {
+        Model::EdgeAirUltra => ("hero-edge", EDGE_HERO_PNG),
+        Model::Rukh => ("hero-rukh", RUKH_PNG),
+    }
+}
+
+/// Разделы навигации; индекс в массиве — значение `AppCtx::page`.
 pub const PAGES: [(&str, &str); 4] = [
     ("DPI", icons::SPEED),
     ("Подсветка", icons::LIGHT),
     ("Кнопки", icons::BUTTONS),
     ("Сенсор", icons::TUNE),
 ];
+const PAGE_LED: usize = 1;
+
+/// Есть ли раздел у этой мыши (подсветки у Rukh нет).
+fn page_available(page: usize, model: Option<Model>) -> bool {
+    page != PAGE_LED || model.is_none_or(|m| m.has_body_led())
+}
 
 #[derive(Clone)]
 pub struct AppCtx {
@@ -26,16 +42,17 @@ pub struct AppCtx {
     pub sel_level: RwSignal<usize>,
     jobs: Sender<Job>,
     pending: Arc<Mutex<Option<Receiver<Job>>>>,
-    simulate: bool,
+    opts: Options,
 }
 
 impl AppCtx {
     /// Создаёт сигналы. Вызывать один раз, до `App::run`.
-    pub fn new(simulate: bool) -> Self {
+    pub fn new(opts: Options) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         Self {
             sink: Sink {
                 link: use_signal(Link::Searching),
+                model: use_signal(None::<Model>),
                 device_name: use_signal(String::new()),
                 battery: use_signal(None::<Battery>),
                 snapshot: use_signal(None::<DeviceConfig>),
@@ -47,15 +64,19 @@ impl AppCtx {
             sel_level: use_signal(1usize),
             jobs: tx,
             pending: Arc::new(Mutex::new(Some(rx))),
-            simulate,
+            opts,
         }
     }
 
     /// Запускает поток устройства (после инициализации рантайма окна).
     pub fn start_worker(&self) {
         if let Some(rx) = self.pending.lock().unwrap().take() {
-            worker::spawn(self.sink, self.simulate, rx);
+            worker::spawn(self.sink, self.opts.clone(), rx);
         }
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.opts.read_only
     }
 
     /// Изменить редактируемый профиль.
@@ -116,6 +137,7 @@ pub fn build_root(ctx: AppCtx) -> impl Widget {
 
 fn header(ctx: AppCtx) -> impl Widget {
     let link_ctx = ctx.clone();
+    let title_ctx = ctx.clone();
     Row::new()
         .gap(14.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -128,7 +150,10 @@ fn header(ctx: AppCtx) -> impl Widget {
             Column::new()
                 .gap(1.0)
                 .child(Text::new("ARDOR GAMING").class("brand-kicker"))
-                .child(Text::new("Edge Air Ultra").class("brand-title")),
+                .child(widgets::reactive(move || {
+                    let name = title_ctx.sink.model.get().map_or("Мышь", |m| m.name());
+                    Text::new(name).class("brand-title")
+                })),
         )
         .child(DecoratedBox::new().class("grow"))
         .child(move || link_pill(&link_ctx))
@@ -180,25 +205,43 @@ fn battery_pill(b: Option<Battery>) -> Box<dyn Widget> {
 }
 
 fn nav(ctx: AppCtx) -> impl Widget {
-    let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
-    col = col.child(Text::new("НАСТРОЙКИ").class("nav-caption"));
-    for (i, (label, icon)) in PAGES.into_iter().enumerate() {
-        let page = ctx.page;
-        col = col.child(
-            Button::new(label)
-                .icon(icon)
-                .active_index(page, i)
-                .on_click(move || page.set(i))
-                .class("nav-btn"),
-        );
-    }
-    col.child(DecoratedBox::new().class("grow"))
-        .child(
-            Image::from_bytes("hero-mouse", HERO_PNG.to_vec())
-                .fit(ImageFit::Contain)
-                .class("nav-hero"),
-        )
-        .child(Text::new("PMW3370 · 2.4G / USB").class("nav-foot"))
+    let (c_pages, c_hero) = (ctx.clone(), ctx.clone());
+    Column::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(Text::new("НАСТРОЙКИ").class("nav-caption"))
+        .child(widgets::reactive(move || {
+            let model = c_pages.sink.model.get();
+            let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+            for (i, (label, icon)) in PAGES.into_iter().enumerate() {
+                if !page_available(i, model) {
+                    continue;
+                }
+                let page = c_pages.page;
+                col = col.child(
+                    Button::new(label)
+                        .icon(icon)
+                        .active_index(page, i)
+                        .on_click(move || page.set(i))
+                        .class("nav-btn"),
+                );
+            }
+            col
+        }))
+        .child(DecoratedBox::new().class("grow"))
+        .child(widgets::reactive_box(move || {
+            let Some(model) = c_hero.sink.model.get() else {
+                return Box::new(DecoratedBox::new());
+            };
+            let (id, png) = hero_png(model);
+            Box::new(
+                Column::new()
+                    .gap(0.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Image::from_bytes(id, png.to_vec()).fit(ImageFit::Contain).class("nav-hero"))
+                    .child(Text::new(format!("{} · 2.4G / USB", model.sensor().name())).class("nav-foot")),
+            )
+        }))
         .class("nav")
 }
 
@@ -211,7 +254,9 @@ fn content(ctx: AppCtx) -> impl Widget {
                 if !has_profile {
                     return Box::new(widgets::placeholder(ctx.sink.link.get()));
                 }
-                match ctx.page.get() {
+                let page = ctx.page.get();
+                let page = if page_available(page, ctx.sink.model.get()) { page } else { 0 };
+                match page {
                     0 => Box::new(pages::dpi::view(ctx.clone())),
                     1 => Box::new(pages::led::view(ctx.clone())),
                     2 => Box::new(pages::buttons::view(ctx.clone())),
@@ -249,9 +294,14 @@ fn footer(ctx: AppCtx) -> impl Widget {
         .child(move || {
             let c = c3.clone();
             let dirty = c3.is_dirty();
-            let can = dirty && c3.is_ready() && c3.sink.busy.get().is_none();
-            Button::new(if dirty { "Применить" } else { "Сохранено" })
-                .icon(if dirty { icons::SAVE } else { icons::CHECK })
+            let can = dirty && c3.is_ready() && c3.sink.busy.get().is_none() && !c3.read_only();
+            let label = match (c3.read_only(), dirty) {
+                (true, _) => "Только чтение",
+                (false, true) => "Применить",
+                (false, false) => "Сохранено",
+            };
+            Button::new(label)
+                .icon(if c3.read_only() { icons::LOCK } else if dirty { icons::SAVE } else { icons::CHECK })
                 .disabled(!can)
                 .on_click(move || c.apply())
                 .class("btn-primary")
