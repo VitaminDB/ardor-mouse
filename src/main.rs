@@ -36,6 +36,15 @@ pub const CATALOGS: &[&str] = &[
     include_str!("../i18n/uk.lang"),
     include_str!("../i18n/kk.lang"),
     include_str!("../i18n/de.lang"),
+    include_str!("../i18n/es.lang"),
+    include_str!("../i18n/fr.lang"),
+    include_str!("../i18n/it.lang"),
+    include_str!("../i18n/ja.lang"),
+    include_str!("../i18n/ko.lang"),
+    include_str!("../i18n/pl.lang"),
+    include_str!("../i18n/pt-BR.lang"),
+    include_str!("../i18n/tr.lang"),
+    include_str!("../i18n/zh-CN.lang"),
 ];
 
 /// Значение после флага `name`, если оно не начинается с `--`.
@@ -153,7 +162,7 @@ ardor-mouse — configure ARDOR GAMING mice (Edge Air Ultra, Rukh)
   --simulate [edge|rukh]  demo mode with a simulated mouse
   --read-only             send only read commands to the mouse
   --dump FILE             save the raw profile image read first
-  --lang TAG              interface language for this run (ru, en, uk, kk, de)
+  --lang TAG              interface language for this run (ru, en, de, es, fr, it, ja, kk, ko, pl, pt-BR, tr, uk, zh-CN)
   --page N                open a section: 0 DPI, 1 lighting, 2 buttons, 3 sensor
   --probe [--write-test]  check the mouse from the terminal: read and verify the
                           profile; --write-test also writes and reverts debounce

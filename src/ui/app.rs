@@ -247,7 +247,14 @@ fn language_picker(ctx: &AppCtx) -> impl Widget {
     for l in syngui::i18n::languages() {
         items.push(DropdownItem::new(l.tag.tag(), l.name));
     }
-    let selected = ctx.language_pref().unwrap_or_else(|| "system".into());
+    // показывать действующий язык: --lang на этот запуск перекрывает сохранённый выбор
+    let cur = syngui::i18n::language().tag().to_string();
+    let follows = |tag: &str| cur.starts_with(tag) || tag.starts_with(&cur);
+    let selected = match ctx.language_pref() {
+        Some(p) if follows(&p) => p,
+        None if follows(syngui::i18n::system_language().tag()) => "system".into(),
+        _ => syngui::i18n::languages().into_iter().map(|l| l.tag.tag().to_string()).find(|t| follows(t)).unwrap_or(cur),
+    };
     let c = ctx.clone();
     Row::new()
         .gap(4.0)

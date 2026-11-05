@@ -38,7 +38,7 @@ no kernel module, no daemon, no root.
   (0.7 mm on the Rukh), debounce, angle snapping, ripple control, sleep timeout; Motion Sync
   and LP/HP sensor mode on the Rukh.
 - **Battery** level and charging state.
-- **Languages** — English, Русский, Українська, Қазақша, Deutsch; follows the system language,
+- **Languages** — English, Русский, Українська, Қазақша, Deutsch, Español, Français, Italiano, 日本語, 한국어, Polski, Português (Brasil), Türkçe, 简体中文; follows the system language,
   switchable from the title bar without a restart.
 
 Settings are read from the mouse's own memory and only the changed regions are written back,
@@ -138,7 +138,7 @@ src/transport/  hidraw (real device), sim (simulator), Device (commands)
 src/worker.rs   background thread that talks to the mouse
 src/probe.rs    --probe: terminal check of a real mouse
 src/ui/         the window: title bar, live mouse view, DPI, lighting, buttons, sensor pages
-i18n/           translations (source strings are Russian; en, uk, kk, de catalogs)
+i18n/           translations (source strings are Russian; catalogs for 13 more languages)
 packaging/      udev rule, .desktop entry, PKGBUILDs
 ```
 
