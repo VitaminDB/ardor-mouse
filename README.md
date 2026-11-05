@@ -19,9 +19,9 @@ no kernel module, no daemon, no root.
 |---|---|---|
 | ![DPI](screenshots/dpi.png) | ![Buttons](screenshots/buttons.png) | ![Sensor](screenshots/sensor.png) |
 
-| Rukh | English interface |
+| Rukh | Russian interface |
 |---|---|
-| ![Rukh](screenshots/rukh.png) | ![English](screenshots/english.png) |
+| ![Rukh](screenshots/rukh.png) | ![Russian](screenshots/russian.png) |
 
 ## What it does
 
@@ -142,7 +142,7 @@ i18n/           translations (source strings are Russian; en, uk, kk, de catalog
 packaging/      udev rule, .desktop entry, PKGBUILDs
 ```
 
-`cargo test` runs 60 tests, including decoding of packets and EEPROM dumps captured from both
+`cargo test` runs 59 tests, including decoding of packets and EEPROM dumps captured from both
 mice.
 
 ## Contributors

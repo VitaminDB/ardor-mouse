@@ -107,6 +107,13 @@ fn main() {
 fn screenshot(ctx: AppCtx, args: &[String], out: &str) -> i32 {
     let model = ctx.simulated_model().unwrap_or(Model::EdgeAirUltra);
     ctx.preload_simulator(model);
+    // `--demo-led N` — эффект подсветки для снимка (индекс в LedMode::ALL)
+    if let Some(m) = arg_value(args, "--demo-led").and_then(|v| v.parse::<usize>().ok()) {
+        if let Some(&mode) = protocol::led::LedMode::ALL.get(m) {
+            ctx.edit(|c| c.led.mode = mode);
+            ctx.sink.snapshot.set(Some(ctx.sink.edit.get_untracked()));
+        }
+    }
     let (w, h) = arg_value(args, "--size")
         .and_then(|s| s.split_once('x'))
         .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
