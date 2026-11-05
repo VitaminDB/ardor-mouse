@@ -8,6 +8,7 @@
 //! (`DAT_005da583` / `DAT_005da58f`; для «Потока» — `DAT_005da577` / `DAT_005da56b`).
 
 use super::packet::checksum;
+use syngui::t;
 
 /// Уровней скорости / яркости в интерфейсе (1…10).
 pub const LEVELS: u8 = 10;
@@ -78,15 +79,15 @@ impl LedMode {
         Self::ALL.into_iter().find(|m| m.hw() == v)
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            LedMode::Steady => "Статичная",
-            LedMode::Breathing => "Дыхание",
-            LedMode::Streaming => "Поток",
-            LedMode::Neon => "Неон",
-            LedMode::Scrolling => "Бег",
-            LedMode::ColorBreathing => "Цветное дыхание",
-            LedMode::Off => "Выключена",
+            LedMode::Steady => t!("Статичная"),
+            LedMode::Breathing => t!("Дыхание"),
+            LedMode::Streaming => t!("Поток"),
+            LedMode::Neon => t!("Неон"),
+            LedMode::Scrolling => t!("Бег"),
+            LedMode::ColorBreathing => t!("Цветное дыхание"),
+            LedMode::Off => t!("Выключена"),
         }
     }
 

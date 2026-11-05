@@ -1,27 +1,23 @@
-//! Страница назначения кнопок.
+//! Страница назначения кнопок: схема мыши с живыми метками и список.
 
 use crate::protocol::buttons::{ButtonAction, PHYSICAL};
-use crate::protocol::model::Model;
 use crate::ui::app::AppCtx;
 use crate::ui::icons;
+use crate::ui::mouse_view::{mouse_view, Place, Scene};
 use crate::ui::widgets::{page_header, reactive};
+use syngui::i18n::t;
+use syngui::t;
 use syngui::prelude::*;
-
-const EDGE_SCHEME_PNG: &[u8] = include_bytes!("../../../assets/skins/0806/mouse_nr.png");
-/// Фото из утилиты Rukh с номерами в стиле схемы Edge (порядок — [`PHYSICAL`]).
-const RUKH_SCHEME_PNG: &[u8] = include_bytes!("../../../assets/skins/rukh/mouse_nr.png");
+use syngui::widgets::*;
 
 pub fn view(ctx: AppCtx) -> impl Widget {
-    let (scheme_id, scheme) = match ctx.sink.edit.get_untracked().model {
-        Model::EdgeAirUltra => ("buttons-scheme-edge", EDGE_SCHEME_PNG),
-        Model::Rukh => ("buttons-scheme-rukh", RUKH_SCHEME_PNG),
-    };
+    let c_scheme = ctx.clone();
     Column::new()
         .gap(18.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(page_header(
-            "Кнопки",
-            "Назначение шести кнопок мыши. Номера совпадают со схемой слева.",
+            &t!("Кнопки"),
+            &t!("Назначение шести кнопок мыши. Наведите на строку — кнопка подсветится на схеме."),
         ))
         .child(
             Row::new()
@@ -29,11 +25,11 @@ pub fn view(ctx: AppCtx) -> impl Widget {
                 .cross_axis_alignment(CrossAxisAlignment::Start)
                 .child(
                     DecoratedBox::new()
-                        .child(
-                            Image::from_bytes(scheme_id, scheme.to_vec())
-                                .fit(ImageFit::Contain)
-                                .class("scheme-img"),
-                        )
+                        .child(reactive(move || {
+                            let model = c_scheme.sink.edit.get().model;
+                            let focus = c_scheme.focus_button.get();
+                            mouse_view(model, Place::Scheme, Scene::Buttons { focus }, 0)
+                        }))
                         .class("card scheme-card"),
                 )
                 .child(DecoratedBox::new().child(list(ctx)).class("grow")),
@@ -44,48 +40,61 @@ pub fn view(ctx: AppCtx) -> impl Widget {
 fn list(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
+        let snapshot = ctx.sink.snapshot.get_untracked();
         let mut col = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         for (n, (label, slot)) in PHYSICAL.into_iter().enumerate() {
             let cur = cfg.buttons[slot];
-            let mut items: Vec<DropdownItem> = ButtonAction::CHOICES
-                .into_iter()
-                .map(|a| DropdownItem::new(a.id(), a.label()))
-                .collect();
+            let mut items: Vec<DropdownItem> =
+                ButtonAction::CHOICES.into_iter().map(|a| DropdownItem::new(a.id(), a.label())).collect();
             if let ButtonAction::Other(_) = cur {
                 items.push(DropdownItem::new(cur.id(), cur.label()));
             }
             let c = ctx.clone();
-            let changed = cfg.buttons[slot] != ctx.sink.snapshot.get_untracked().map_or(cur, |s| s.buttons[slot]);
+            let changed = snapshot.as_ref().is_some_and(|s| s.buttons[slot] != cur);
+            let focus = ctx.focus_button;
             col = col.child(
-                DecoratedBox::new()
+                GestureDetector::new()
+                    .on_hover_change(move |on| {
+                        if on {
+                            focus.set(Some(n));
+                        } else if focus.get_untracked() == Some(n) {
+                            focus.set(None);
+                        }
+                    })
                     .child(
-                        Row::new()
-                            .gap(14.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                        DecoratedBox::new()
                             .child(
-                                DecoratedBox::new()
-                                    .child(Center::new().child(Text::new((n + 1).to_string()).class("num-text")))
-                                    .class("num-badge"),
-                            )
-                            .child({
-                                let mut info = Column::new().gap(3.0).child(Text::new(label).class("row-title"));
-                                if changed {
-                                    info = info.child(Text::new("изменено, не сохранено").class("row-desc changed"));
-                                }
-                                info.class("grow")
-                            })
-                            .child(
-                                Dropdown::with_items(items)
-                                    .selected(cur.id())
-                                    .width(230.0)
-                                    .on_change(move |id| {
-                                        if let Some(a) = ButtonAction::from_id(id) {
-                                            c.edit(|cfg| cfg.buttons[slot] = a);
+                                Row::new()
+                                    .gap(14.0)
+                                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                                    .child(
+                                        DecoratedBox::new()
+                                            .child(Center::new().child(Text::new((n + 1).to_string()).class("num-text")))
+                                            .class("num-badge"),
+                                    )
+                                    .child({
+                                        let mut info =
+                                            Column::new().gap(3.0).child(Text::new(t(label)).class("row-title"));
+                                        if changed {
+                                            info = info.child(
+                                                Text::new(t!("изменено, не сохранено")).class("row-desc changed"),
+                                            );
                                         }
-                                    }),
-                            ),
-                    )
-                    .class(if changed { "btn-row btn-row-changed" } else { "btn-row" }),
+                                        info.class("grow")
+                                    })
+                                    .child(
+                                        Dropdown::with_items(items)
+                                            .selected(cur.id())
+                                            .width(230.0)
+                                            .on_change(move |id| {
+                                                if let Some(a) = ButtonAction::from_id(id) {
+                                                    c.edit(|cfg| cfg.buttons[slot] = a);
+                                                }
+                                            }),
+                                    ),
+                            )
+                            .class(if changed { "btn-row btn-row-changed" } else { "btn-row" }),
+                    ),
             );
         }
         if let Err(msg) = cfg.validate() {

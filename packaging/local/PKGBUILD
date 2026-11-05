@@ -1,0 +1,34 @@
+# Локальная сборка из рабочей копии — проверка у себя до публикации.
+#   cd packaging/local && makepkg -sif
+# Профиль fast-release (без LTO); для AUR — packaging/aur/ardor-mouse.
+pkgname=ardor-mouse
+pkgver=0.3.0
+pkgrel=0
+pkgdesc="Configuration tool for ARDOR GAMING mice (Edge Air Ultra, Rukh) — local build"
+arch=('x86_64')
+url="https://github.com/VitaminDB/ardor-mouse"
+license=('MIT')
+depends=('fontconfig' 'freetype2' 'libxkbcommon' 'wayland' 'vulkan-icd-loader' 'hicolor-icon-theme' 'gcc-libs' 'glibc')
+makedepends=('cargo')
+options=('!lto' '!debug')
+install=../aur/ardor-mouse/ardor-mouse.install
+
+_src() { realpath "$startdir/../.."; }
+
+build() {
+    cd "$(_src)"
+    cargo build --profile fast-release
+}
+
+package() {
+    cd "$(_src)"
+    install -Dm755 target/fast-release/ardor_mouse "$pkgdir/usr/bin/ardor-mouse"
+    install -Dm644 packaging/ardor-mouse.desktop "$pkgdir/usr/share/applications/ardor-mouse.desktop"
+    install -Dm644 packaging/70-ardor-mouse.rules "$pkgdir/usr/lib/udev/rules.d/70-ardor-mouse.rules"
+    install -Dm644 assets/icon/ardor-mouse.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/ardor-mouse.svg"
+    for s in 16 32 48 64 128 256 512; do
+        install -Dm644 "assets/icon/ardor-mouse-$s.png" \
+            "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/ardor-mouse.png"
+    done
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

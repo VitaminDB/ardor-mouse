@@ -3,12 +3,12 @@
 use crate::protocol::led::{LedMode, Rgb, LEVELS};
 use crate::ui::app::AppCtx;
 use crate::ui::icons;
-use crate::ui::widgets::{reactive, reactive_box, card, labeled, page_header, setting_row, swatch_dot};
+use crate::ui::mouse_view::{mouse_view, Place, Scene};
+use crate::ui::widgets::{card, labeled, page_header, reactive, reactive_box, setting_row, swatch_dot};
 use syngui::prelude::*;
-use syngui::{CursorIcon, StyleValue};
+use syngui::t;
+use syngui::CursorIcon;
 use syngui::widgets::*;
-
-const PREVIEW_PNG: &[u8] = include_bytes!("../../../assets/skins/0806/mouse_led.png");
 
 const PALETTE: [Rgb; 8] = [
     Rgb::new(255, 0, 0),
@@ -37,16 +37,16 @@ pub fn view(ctx: AppCtx) -> impl Widget {
     Column::new()
         .gap(18.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(page_header("Подсветка", "RGB-подсветка корпуса: эффект, цвет, скорость и яркость."))
+        .child(page_header(&t!("Подсветка"), &t!("RGB-подсветка корпуса: эффект, цвет, скорость и яркость.")))
         .child(
             Row::new()
                 .gap(18.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(DecoratedBox::new().child(card("Эффект", "", modes(ctx.clone()))).class("grow"))
+                .child(DecoratedBox::new().child(card(&t!("Эффект"), "", modes(ctx.clone()))).class("grow"))
                 .child(preview(ctx.clone())),
         )
-        .child(card("Параметры эффекта", "", params(ctx.clone())))
-        .child(card("Дополнительно", "", extra(ctx)))
+        .child(card(&t!("Параметры эффекта"), "", params(ctx.clone())))
+        .child(card(&t!("Дополнительно"), "", extra(ctx)))
         .class("page")
 }
 
@@ -77,39 +77,18 @@ fn modes(ctx: AppCtx) -> impl Widget {
     })
 }
 
+/// Живая мышь: эффект проигрывается так, как его покажет настоящая.
 fn preview(ctx: AppCtx) -> impl Widget {
     DecoratedBox::new()
-        .child(
+        .child(reactive(move || {
+            let cfg = ctx.sink.edit.get();
             Column::new()
-                .gap(0.0)
+                .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Превью").class("card-title"))
-                .child(
-                    Image::from_bytes("led-preview", PREVIEW_PNG.to_vec())
-                        .fit(ImageFit::Contain)
-                        .class("led-preview-img"),
-                )
-                .child(move || {
-                    let led = ctx.sink.edit.get().led;
-                    let opacity = if led.mode == LedMode::Off {
-                        0.0
-                    } else {
-                        0.35 + 0.065 * led.brightness as f32
-                    };
-                    let bar = if led.mode.has_color() {
-                        DecoratedBox::new()
-                            .class("glow-bar")
-                            .style("background-color", Color::from_srgb(led.color.r, led.color.g, led.color.b, 1.0))
-                    } else {
-                        DecoratedBox::new().class("glow-bar glow-rainbow")
-                    };
-                    bar.style("opacity", StyleValue::Number(opacity))
-                })
-                .child(move || {
-                    let led = ctx.sink.edit.get().led;
-                    Text::new(led.mode.label()).class("preview-caption")
-                }),
-        )
+                .child(Text::new(t!("Превью")).class("card-title"))
+                .child(mouse_view(cfg.model, Place::Preview, Scene::Lighting(cfg.led), 0))
+                .child(Text::new(cfg.led.mode.label()).class("preview-caption"))
+        }))
         .class("card preview-card")
 }
 
@@ -117,7 +96,7 @@ fn params(ctx: AppCtx) -> impl Widget {
     reactive_box(move || {
         let led = ctx.sink.edit.get().led;
         if led.mode == LedMode::Off {
-            return Box::new(Text::new("Подсветка выключена — выберите эффект, чтобы настроить его.").class("muted"));
+            return Box::new(Text::new(t!("Подсветка выключена — выберите эффект, чтобы настроить его.")).class("muted"));
         }
         let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
 
@@ -143,19 +122,19 @@ fn params(ctx: AppCtx) -> impl Widget {
             col = col.child(
                 Column::new()
                     .gap(10.0)
-                    .child(labeled("Цвет", led.color.to_hex()))
+                    .child(labeled(&t!("Цвет"), led.color.to_hex()))
                     .child(palette),
             );
         } else {
-            col = col.child(Text::new("Этот эффект переливается всеми цветами — выбор цвета не нужен.").class("muted"));
+            col = col.child(Text::new(t!("Этот эффект переливается всеми цветами — выбор цвета не нужен.")).class("muted"));
         }
 
         if led.mode.has_speed() {
             let c = ctx.clone();
-            col = col.child(level_slider("Скорость", led.speed, move |v| c.edit(|cfg| cfg.led.speed = v)));
+            col = col.child(level_slider(&t!("Скорость"), led.speed, move |v| c.edit(|cfg| cfg.led.speed = v)));
         }
         let c = ctx.clone();
-        col = col.child(level_slider("Яркость", led.brightness, move |v| c.edit(|cfg| cfg.led.brightness = v)));
+        col = col.child(level_slider(&t!("Яркость"), led.brightness, move |v| c.edit(|cfg| cfg.led.brightness = v)));
         Box::new(col)
     })
 }
@@ -180,8 +159,8 @@ fn extra(ctx: AppCtx) -> impl Widget {
         let on = ctx.sink.edit.get().led_off_moving;
         let c = ctx.clone();
         setting_row(
-            "Гасить подсветку при движении",
-            "Экономит заряд: подсветка выключается, пока мышь двигается.",
+            &t!("Гасить подсветку при движении"),
+            &t!("Экономит заряд: подсветка выключается, пока мышь двигается."),
             Box::new(Toggle::new().on(on).on_change(move |v| c.edit(|cfg| cfg.led_off_moving = v))),
         )
     })

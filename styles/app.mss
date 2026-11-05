@@ -1,4 +1,4 @@
-/* ARDOR Edge Air Ultra — тёмная тема */
+/* ARDOR GAMING — тёмная тема */
 
 :root {
     --bg: #0d0f13;
@@ -36,7 +36,6 @@
 Text { color: var(--text); font-size: 14px; }
 Icon { color: var(--text-2); icon-size: 20px; }
 
-.root { background: var(--bg); }
 
 /* ---------- шапка ---------- */
 
@@ -100,7 +99,6 @@ Icon { color: var(--text-2); icon-size: 20px; }
     &:selected { background: var(--accent-soft); color: #ffffff; icon-color: var(--accent); }
 }
 
-.nav-hero { width: 200px; height: 125px; opacity: 0.9; }
 .nav-foot { color: var(--muted); font-size: 11px; text-align: center; padding-top: 6px; }
 
 /* ---------- контент ---------- */
@@ -318,23 +316,12 @@ Tooltip { background: #2a303c; color: var(--text); font-size: 12px; border-radiu
 .mode-icon { icon-size: 28px; color: var(--text-2); }
 .mode-label { color: var(--text); font-size: 13px; text-align: center; }
 
-.preview-card { width: 330px; }
-.led-preview-img { width: 286px; height: 179px; margin-top: 12px; }
-.glow-bar {
-    width: 230px;
-    height: 10px;
-    border-radius: 5px;
-    margin-top: 4px;
-}
-.glow-rainbow {
-    background: linear-gradient(90deg, #ff0040, #ffae00, #3dff5a, #00c8ff, #7a3dff, #ff00c8);
-}
+.preview-card { min-width: 330px; }
 .preview-caption { color: var(--muted); font-size: 13px; padding-top: 12px; }
 
 /* ---------- кнопки ---------- */
 
-.scheme-card { padding: 8px; }
-.scheme-img { width: 400px; height: 327px; }
+.scheme-card { padding: 16px; }
 
 .btn-row {
     background: var(--surface);
@@ -389,3 +376,48 @@ Tooltip { background: #2a303c; color: var(--text); font-size: 12px; border-radiu
 .status-info { color: var(--info); }
 
 CircularProgress { color: var(--accent); accent-color: var(--accent); track-color: #2a2f3b; }
+
+/* ---------- окно (CSD) ---------- */
+
+.window { background: var(--bg); }
+.window-frame { border-radius: 12px; border: 1px solid var(--border-strong); background: var(--bg); }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+
+.titlebar {
+    height: 58px;
+    background: var(--bg-2);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--border);
+}
+.tb-drag { height: 58px; padding: 0px 18px; }
+.drag-space { height: 58px; min-width: 40px; }
+.tb-tools { height: 58px; padding: 0px 6px; }
+.tb-icon { color: var(--muted); icon-size: 18px; }
+.lang-dropdown { padding: 6px 10px; font-size: 13px; border-radius: 9px; }
+.window-controls { height: 58px; padding: 0px 10px 0px 4px; }
+SystemWindowControls { color: var(--text); background-color: var(--surface-3); }
+
+/* ---------- живая мышь ---------- */
+
+.art-hero-edge { width: 200px; height: 125px; }
+.art-hero-rukh { width: 196px; height: 135px; }
+.art-preview-edge { width: 384px; height: 240px; }
+.art-preview-rukh { width: 348px; height: 240px; }
+.art-scheme-edge { width: 260px; height: 370px; }
+.art-scheme-rukh { width: 420px; height: 290px; }
+
+.hero-shadow {
+    width: 130px;
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: 0 0 14px rgba(0, 0, 0, 0.6);
+    margin-top: 2px;
+}
+
+.btn-pulse { animation: savePulse 1600ms ease-in-out infinite; }
+@keyframes savePulse {
+    0% { box-shadow: 0 6px 18px rgba(255, 59, 78, 0.25); }
+    50% { box-shadow: 0 6px 26px rgba(255, 59, 78, 0.6); }
+    100% { box-shadow: 0 6px 18px rgba(255, 59, 78, 0.25); }
+}

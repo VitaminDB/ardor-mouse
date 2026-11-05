@@ -9,6 +9,7 @@ use crate::protocol::eeprom::{DecodeWarnings, DeviceConfig};
 use crate::protocol::model::Model;
 use crate::protocol::packet::{cmd, to_hex, Packet, Response, MAX_DATA};
 use std::fmt;
+use syngui::t;
 use std::time::{Duration, Instant};
 
 /// Сколько ждать ответ (оригинал: 50 × 20 мс).
@@ -35,20 +36,24 @@ pub enum Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::NotFound => write!(f, "приёмник мыши не найден"),
-            Error::Permission(p) => write!(f, "нет доступа к {p} — установите udev-правило"),
-            Error::Io(e) => write!(f, "ошибка ввода-вывода: {e}"),
-            Error::Timeout { cmd } => {
-                write!(f, "мышь не ответила на команду 0x{cmd:02X} — пошевелите ей")
-            }
-            Error::Rejected { cmd, status } => {
-                write!(f, "мышь отклонила команду 0x{cmd:02X} (статус 0x{status:02X})")
-            }
+        let cmd_hex = |c: &u8| format!("0x{c:02X}");
+        let text = match self {
+            Error::NotFound => t!("приёмник мыши не найден"),
+            Error::Permission(p) => t!("нет доступа к {path} — установите udev-правило", path = p),
+            Error::Io(e) => t!("ошибка ввода-вывода: {error}", error = e),
             Error::ReadOnly { cmd } => {
-                write!(f, "режим только чтения: команда 0x{cmd:02X} не отправлена")
+                t!("режим только чтения: команда {cmd} не отправлена", cmd = cmd_hex(cmd))
             }
-        }
+            Error::Timeout { cmd } => {
+                t!("мышь не ответила на команду {cmd} — пошевелите ей", cmd = cmd_hex(cmd))
+            }
+            Error::Rejected { cmd, status } => t!(
+                "мышь отклонила команду {cmd} (статус {status})",
+                cmd = cmd_hex(cmd),
+                status = cmd_hex(status)
+            ),
+        };
+        f.write_str(&text)
     }
 }
 
@@ -109,7 +114,7 @@ impl Device {
         if self.read_only && !cmd::is_read_only(pkt.cmd()) {
             return Err(Error::ReadOnly { cmd: pkt.cmd() });
         }
-        let response_id = self.t.model().response_id();
+        let response_id = self.t.model().spec().response_id;
         let mut last = Error::Timeout { cmd: pkt.cmd() };
         for _ in 0..RETRIES {
             // Сбросить накопившиеся отчёты (клавиатура/мультимедиа того же интерфейса).
@@ -181,7 +186,7 @@ impl Device {
 
     /// Сырой образ профиля — столько байт, сколько читает оригинальная утилита.
     pub fn read_profile(&mut self) -> Result<Vec<u8>> {
-        let len = self.model().profile_len();
+        let len = self.model().spec().profile_len;
         self.read_eeprom(0, len)
     }
 

@@ -16,8 +16,8 @@
 //! | 0x60 | 64 | матрица кнопок (см. [`buttons`](super::buttons)) |
 //! | 0xA0 | 7 | подсветка (см. [`led`](super::led)) |
 //! | 0xA9 | 2 | debounce, мс |
-//! | 0xAB | 2 | motion sync (только сенсоры, где он есть — [`Model::has_motion_sync`]) |
-//! | 0xB9 | 2 | режим сенсора: 0 = LP, 1 = HP ([`Model::has_sensor_mode`]) |
+//! | 0xAB | 2 | motion sync (только сенсоры, где он есть — [`Spec::motion_sync`]) |
+//! | 0xB9 | 2 | режим сенсора: 0 = LP, 1 = HP ([`Spec::sensor_mode`]) |
 //! | 0xAD | 2 | время до сна, ×10 с |
 //! | 0xAF | 2 | выпрямление линии (angle snapping) |
 //! | 0xB1 | 2 | ripple control |
@@ -26,6 +26,9 @@
 use super::buttons::{self, ButtonAction};
 use super::led::{LedConfig, Rgb};
 use super::model::Model;
+#[allow(unused_imports)] // для ссылок в документации
+use super::model::Spec;
+use syngui::{n_, t};
 use super::packet::{checksum, CHECKSUM_BASE};
 
 /// Ступеней DPI в таблице.
@@ -111,18 +114,18 @@ pub struct DeviceConfig {
     /// Активная ступень (с нуля).
     pub dpi_active: u8,
     pub dpi: [DpiLevel; DPI_SLOTS],
-    /// Высота отрыва — значение из [`Model::lod_options`].
+    /// Высота отрыва — значение из [`Spec::lod`].
     pub lod: u8,
     pub buttons: [ButtonAction; buttons::SLOTS],
-    /// Подсветка корпуса; у моделей без неё ([`Model::has_body_led`]) не
+    /// Подсветка корпуса; у моделей без неё ([`Spec::body_led`]) не
     /// читается и не пишется.
     pub led: LedConfig,
     pub debounce_ms: u8,
-    /// Motion sync; у моделей без него ([`Model::has_motion_sync`]) не
+    /// Motion sync; у моделей без него ([`Spec::motion_sync`]) не
     /// читается и не пишется.
     pub motion_sync: bool,
     /// Режим сенсора HP (High Performance) вместо LP (Low Power); у моделей
-    /// без выбора ([`Model::has_sensor_mode`]) не читается и не пишется.
+    /// без выбора ([`Spec::sensor_mode`]) не читается и не пишется.
     pub sensor_hp: bool,
     /// Время до сна в десятках секунд.
     pub sleep_x10s: u8,
@@ -240,7 +243,8 @@ impl DeviceConfig {
     /// заменяются заводскими и перечисляются в предупреждениях.
     pub fn decode(mem: &[u8], model: Model) -> (Self, DecodeWarnings) {
         let d = Self::factory(model);
-        let has_led = model.has_body_led();
+        let spec = model.spec();
+        let has_led = spec.body_led;
         let mut warn = DecodeWarnings::new();
         let mut get = |a: u16, name: &'static str, ok: &dyn Fn(u8) -> bool| -> Option<u8> {
             match read_pair(mem, a) {
@@ -252,35 +256,35 @@ impl DeviceConfig {
             }
         };
 
-        let rates = model.polling_rates();
-        let polling = get(addr::POLLING, "частота опроса", &|v| {
+        let rates = spec.polling_rates;
+        let polling = get(addr::POLLING, n_!("частота опроса"), &|v| {
             PollingRate::from_hw(v).is_some_and(|r| rates.contains(&r))
         })
             .and_then(PollingRate::from_hw)
             .unwrap_or(d.polling);
-        let dpi_count = get(addr::DPI_COUNT, "число ступеней DPI", &|v| (1..=8).contains(&v))
+        let dpi_count = get(addr::DPI_COUNT, n_!("число ступеней DPI"), &|v| (1..=8).contains(&v))
             .unwrap_or(d.dpi_count);
         let dpi_active =
-            get(addr::DPI_ACTIVE, "активная ступень DPI", &|v| v < 8).unwrap_or(d.dpi_active);
-        let lod = get(addr::LOD, "LOD", &|v| model.lod_options().iter().any(|&(o, _)| o == v))
+            get(addr::DPI_ACTIVE, n_!("активная ступень DPI"), &|v| v < 8).unwrap_or(d.dpi_active);
+        let lod = get(addr::LOD, n_!("LOD"), &|v| spec.lod.iter().any(|l| l.hw == v))
             .unwrap_or(d.lod);
-        let debounce_ms = get(addr::DEBOUNCE, "debounce", &|v| v <= 30).unwrap_or(d.debounce_ms);
-        let sensor_hp = if model.has_sensor_mode() {
-            get(addr::SENSOR_MODE, "режим сенсора", &|v| v <= 1).map_or(d.sensor_hp, |v| v != 0)
+        let debounce_ms = get(addr::DEBOUNCE, n_!("debounce"), &|v| v <= 30).unwrap_or(d.debounce_ms);
+        let sensor_hp = if spec.sensor_mode {
+            get(addr::SENSOR_MODE, n_!("режим сенсора"), &|v| v <= 1).map_or(d.sensor_hp, |v| v != 0)
         } else {
             d.sensor_hp
         };
-        let motion_sync = if model.has_motion_sync() {
-            get(addr::MOTION_SYNC, "motion sync", &|v| v <= 1).map_or(d.motion_sync, |v| v != 0)
+        let motion_sync = if spec.motion_sync {
+            get(addr::MOTION_SYNC, n_!("motion sync"), &|v| v <= 1).map_or(d.motion_sync, |v| v != 0)
         } else {
             d.motion_sync
         };
-        let sleep_x10s = get(addr::SLEEP, "время до сна", &|v| v > 0).unwrap_or(d.sleep_x10s);
-        let angle_snap = get(addr::ANGLE_SNAP, "выпрямление линии", &|_| true)
+        let sleep_x10s = get(addr::SLEEP, n_!("время до сна"), &|v| v > 0).unwrap_or(d.sleep_x10s);
+        let angle_snap = get(addr::ANGLE_SNAP, n_!("выпрямление линии"), &|_| true)
             .map_or(d.angle_snap, |v| v != 0);
-        let ripple = get(addr::RIPPLE, "ripple", &|_| true).map_or(d.ripple, |v| v != 0);
+        let ripple = get(addr::RIPPLE, n_!("ripple"), &|_| true).map_or(d.ripple, |v| v != 0);
         let led_off_moving = if has_led {
-            get(addr::LED_OFF_MOVING, "гашение подсветки", &|_| true).map_or(d.led_off_moving, |v| v != 0)
+            get(addr::LED_OFF_MOVING, n_!("гашение подсветки"), &|_| true).map_or(d.led_off_moving, |v| v != 0)
         } else {
             d.led_off_moving
         };
@@ -301,14 +305,14 @@ impl DeviceConfig {
             }
         }
         if dpi_bad {
-            warn.push("таблица DPI");
+            warn.push(n_!("таблица DPI"));
         }
 
         let mut buttons = d.buttons;
         for (i, b) in buttons.iter_mut().enumerate() {
             match slice(addr::BUTTONS + i as u16 * 4, 4).and_then(ButtonAction::decode) {
                 Some(v) => *b = v,
-                None if i < buttons::PHYSICAL.len() => warn.push("назначение кнопок"),
+                None if i < buttons::PHYSICAL.len() => warn.push(n_!("назначение кнопок")),
                 None => {}
             }
         }
@@ -317,7 +321,7 @@ impl DeviceConfig {
             Some(l) if has_led => l,
             _ if !has_led => d.led,
             _ => {
-                warn.push("подсветка");
+                warn.push(n_!("подсветка"));
                 d.led
             }
         };
@@ -345,7 +349,8 @@ impl DeviceConfig {
 
     /// Все записываемые участки профиля.
     pub fn regions(&self) -> Vec<Region> {
-        let sensor = self.model.sensor();
+        let spec = self.model.spec();
+        let sensor = spec.sensor;
         let mut dpi_tab = Vec::with_capacity(32);
         let mut colors = Vec::with_capacity(32);
         for l in &self.dpi {
@@ -356,56 +361,56 @@ impl DeviceConfig {
         }
         let buttons: Vec<u8> = self.buttons.iter().flat_map(|b| b.encode()).collect();
         let mut regions = vec![
-            Region { addr: addr::POLLING, data: pair(self.polling.hw()), name: "частота опроса" },
-            Region { addr: addr::DPI_COUNT, data: pair(self.dpi_count), name: "число ступеней DPI" },
+            Region { addr: addr::POLLING, data: pair(self.polling.hw()), name: n_!("частота опроса") },
+            Region { addr: addr::DPI_COUNT, data: pair(self.dpi_count), name: n_!("число ступеней DPI") },
             Region {
                 addr: addr::DPI_ACTIVE,
                 data: pair(self.dpi_active.min(self.dpi_count.saturating_sub(1))),
-                name: "активная ступень DPI",
+                name: n_!("активная ступень DPI"),
             },
-            Region { addr: addr::LOD, data: pair(self.lod), name: "LOD" },
-            Region { addr: addr::DPI_TABLE, data: dpi_tab, name: "значения DPI" },
-            Region { addr: addr::DPI_COLORS, data: colors, name: "цвета DPI" },
-            Region { addr: addr::BUTTONS, data: buttons, name: "кнопки" },
-            Region { addr: addr::DEBOUNCE, data: pair(self.debounce_ms), name: "debounce" },
-            Region { addr: addr::SLEEP, data: pair(self.sleep_x10s), name: "время до сна" },
+            Region { addr: addr::LOD, data: pair(self.lod), name: n_!("LOD") },
+            Region { addr: addr::DPI_TABLE, data: dpi_tab, name: n_!("значения DPI") },
+            Region { addr: addr::DPI_COLORS, data: colors, name: n_!("цвета DPI") },
+            Region { addr: addr::BUTTONS, data: buttons, name: n_!("кнопки") },
+            Region { addr: addr::DEBOUNCE, data: pair(self.debounce_ms), name: n_!("debounce") },
+            Region { addr: addr::SLEEP, data: pair(self.sleep_x10s), name: n_!("время до сна") },
             Region {
                 addr: addr::ANGLE_SNAP,
                 data: pair(self.angle_snap as u8),
-                name: "выпрямление линии",
+                name: n_!("выпрямление линии"),
             },
-            Region { addr: addr::RIPPLE, data: pair(self.ripple as u8), name: "ripple" },
+            Region { addr: addr::RIPPLE, data: pair(self.ripple as u8), name: n_!("ripple") },
         ];
-        if self.model.has_motion_sync() {
+        if spec.motion_sync {
             regions.push(Region {
                 addr: addr::MOTION_SYNC,
                 data: pair(self.motion_sync as u8),
-                name: "motion sync",
+                name: n_!("motion sync"),
             });
         }
-        if self.model.has_sensor_mode() {
+        if spec.sensor_mode {
             regions.push(Region {
                 addr: addr::SENSOR_MODE,
                 data: pair(self.sensor_hp as u8),
-                name: "режим сенсора",
+                name: n_!("режим сенсора"),
             });
         }
-        if self.model.has_body_led() {
-            regions.push(Region { addr: addr::LED, data: self.led.encode().to_vec(), name: "подсветка" });
+        if spec.body_led {
+            regions.push(Region { addr: addr::LED, data: self.led.encode().to_vec(), name: n_!("подсветка") });
             regions.push(Region {
                 addr: addr::LED_OFF_MOVING,
                 data: pair(self.led_off_moving as u8),
-                name: "гашение подсветки",
+                name: n_!("гашение подсветки"),
             });
         }
         regions
     }
 
     /// Участки, отличающиеся от `old`, — только их и нужно писать. Для мышей
-    /// с [`Model::per_record_writes`] таблицы дробятся до изменённых записей.
+    /// с [`Spec::per_record_writes`] таблицы дробятся до изменённых записей.
     pub fn changed_regions(&self, old: &DeviceConfig) -> Vec<Region> {
         assert_eq!(self.model, old.model, "профили разных мышей");
-        let per_record = self.model.per_record_writes();
+        let per_record = self.model.spec().per_record_writes;
         let before = old.regions();
         self.regions()
             .into_iter()
@@ -422,13 +427,14 @@ impl DeviceConfig {
             .iter()
             .any(|&(_, slot)| self.buttons[slot] == ButtonAction::Left);
         if !has_left {
-            return Err("Хотя бы одна кнопка должна быть назначена как «Левый клик»".into());
+            return Err(t!("Хотя бы одна кнопка должна быть назначена как «Левый клик»"));
         }
         if self.dpi_count == 0 {
-            return Err("Нельзя отключить все ступени DPI".into());
+            return Err(t!("Нельзя отключить все ступени DPI"));
         }
-        if self.dpi_count > self.model.max_dpi_stages() {
-            return Err(format!("У этой мыши не больше {} ступеней DPI", self.model.max_dpi_stages()));
+        let max = self.model.spec().max_dpi_stages;
+        if self.dpi_count > max {
+            return Err(t!("У этой мыши не больше {n} ступеней DPI", n = max));
         }
         Ok(())
     }
@@ -561,7 +567,7 @@ mod tests {
 
     /// Образ EEPROM из участков профиля (остальное — 0xFF, как в чистой памяти).
     fn image(cfg: &DeviceConfig) -> Vec<u8> {
-        let mut mem = vec![0xFF; cfg.model.profile_len()];
+        let mut mem = vec![0xFF; cfg.model.spec().profile_len];
         for r in cfg.regions() {
             let a = r.addr as usize;
             mem[a..a + r.data.len()].copy_from_slice(&r.data);

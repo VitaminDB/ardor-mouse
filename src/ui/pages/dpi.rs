@@ -4,12 +4,17 @@ use crate::protocol::dpi::Sensor;
 use crate::protocol::led::Rgb;
 use crate::ui::app::AppCtx;
 use crate::ui::icons;
-use crate::ui::widgets::{reactive, card, page_header, swatch_dot};
+use crate::ui::mouse_view::{mouse_view, Place, Scene};
+use crate::ui::widgets::{card, page_header, reactive, swatch_dot};
 use syngui::prelude::*;
-use syngui::CursorIcon;
+use syngui::t;
 use syngui::widgets::*;
+use syngui::CursorIcon;
 
-const PRESETS: [u16; 8] = [400, 800, 1200, 1600, 2400, 3200, 6400, 12_000];
+/// Быстрые значения; последнее — максимум сенсора.
+fn presets(sensor: Sensor) -> [u16; 6] {
+    [400, 800, 1600, 3200, 6400, sensor.max()]
+}
 
 /// Палитра быстрых цветов индикатора.
 const PALETTE: [Rgb; 8] = [
@@ -24,10 +29,10 @@ const PALETTE: [Rgb; 8] = [
 ];
 
 /// Подпись под шкалой: сетка значений сенсора.
-fn grid_hint(sensor: Sensor) -> &'static str {
+fn grid_hint(sensor: Sensor) -> String {
     match sensor {
-        Sensor::Pmw3370 => "шаг 50 до 10 000, дальше 100",
-        Sensor::Paw3950 => "шаг 50",
+        Sensor::Pmw3370 => t!("шаг 50 до 10 000, дальше 100"),
+        Sensor::Paw3950 => t!("шаг 50"),
     }
 }
 
@@ -38,25 +43,56 @@ pub fn view(ctx: AppCtx) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(page_header(
             "DPI",
-            &format!(
-                "Ступени чувствительности сенсора {}. Кнопка DPI на мыши переключает их по кругу.",
-                sensor.name()
+            &t!(
+                "Ступени чувствительности сенсора {sensor}. Кнопка DPI на мыши переключает их по кругу.",
+                sensor = sensor.name()
             ),
         ))
         .child(card(
-            "Ступени",
-            "Нажмите на ступень, чтобы настроить её. Звезда — ступень, включённая сейчас.",
+            &t!("Ступени"),
+            &t!("Нажмите на ступень, чтобы настроить её. Звезда — ступень, включённая сейчас."),
             levels_row(ctx.clone()),
         ))
-        .child(card("Настройка ступени", "", editor(ctx)))
+        .child(
+            Row::new()
+                .gap(18.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(DecoratedBox::new().child(card(&t!("Настройка ступени"), "", editor(ctx.clone()))).class("grow"))
+                .child(preview(ctx)),
+        )
         .class("page")
+}
+
+/// Мышь, у которой индикатор горит цветом выбранной ступени; при выборе
+/// другой ступени — вспышка.
+fn preview(ctx: AppCtx) -> impl Widget {
+    DecoratedBox::new()
+        .child(reactive(move || {
+            let cfg = ctx.sink.edit.get();
+            let i = ctx.sel_level.get().min(cfg.dpi_count as usize - 1);
+            let lvl = cfg.dpi[i];
+            let key = (i as u64) << 32 | (lvl.color.r as u64) << 16 | (lvl.color.g as u64) << 8 | lvl.color.b as u64;
+            Column::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(t!("Индикатор")).class("card-title"))
+                .child(mouse_view(cfg.model, Place::Preview, Scene::Dpi(lvl.color), key))
+                .child(
+                    Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(swatch_dot(lvl.color.r, lvl.color.g, lvl.color.b, "level-dot"))
+                        .child(Text::new(t!("Ступень {n} · {dpi} DPI", n = i + 1, dpi = lvl.dpi)).class("preview-caption")),
+                )
+        }))
+        .class("card preview-card")
 }
 
 fn levels_row(ctx: AppCtx) -> impl Widget {
     reactive(move || {
         let cfg = ctx.sink.edit.get();
         let count = cfg.dpi_count as usize;
-        let max = cfg.model.max_dpi_stages();
+        let max = cfg.model.spec().max_dpi_stages;
         let sel = ctx.sel_level.get().min(count - 1);
         let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         for i in 0..count {
@@ -67,7 +103,7 @@ fn levels_row(ctx: AppCtx) -> impl Widget {
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(swatch_dot(lvl.color.r, lvl.color.g, lvl.color.b, "level-dot"))
-                .child(Text::new(format!("Ступень {}", i + 1)).class("level-name"));
+                .child(Text::new(t!("Ступень {n}", n = i + 1)).class("level-name"));
             if active {
                 head = head.child(Icon::new(icons::STAR).class("level-star"));
             }
@@ -92,7 +128,7 @@ fn levels_row(ctx: AppCtx) -> impl Widget {
                 .gap(6.0)
                 .child(
                     ToolButton::new(icons::ADD)
-                        .tooltip("Добавить ступень")
+                        .tooltip(t!("Добавить ступень"))
                         .disabled(count >= max as usize)
                         .on_click(move || {
                             c_add.edit(|c| c.dpi_count = (c.dpi_count + 1).min(max));
@@ -102,7 +138,7 @@ fn levels_row(ctx: AppCtx) -> impl Widget {
                 )
                 .child(
                     ToolButton::new(icons::REMOVE)
-                        .tooltip("Убрать последнюю ступень")
+                        .tooltip(t!("Убрать последнюю ступень"))
                         .disabled(count <= 1)
                         .on_click(move || {
                             c_del.edit(|c| {
@@ -133,23 +169,23 @@ fn editor(ctx: AppCtx) -> impl Widget {
                             .gap(6.0)
                             .cross_axis_alignment(CrossAxisAlignment::Center)
                             .child(Icon::new(icons::STAR).class("tag-icon"))
-                            .child(Text::new("Активная ступень").class("tag-text")),
+                            .child(Text::new(t!("Активная ступень")).class("tag-text")),
                     )
                     .class("tag"),
             )
         } else {
             Box::new(
-                Button::new("Сделать активной")
+                Button::new(t!("Сделать активной"))
                     .icon(icons::STAR)
                     .on_click(move || c_active.edit(|c| c.dpi_active = i as u8))
                     .class("btn-ghost"),
             )
         };
 
-        let mut presets = Row::new().gap(8.0);
-        for p in PRESETS {
+        let mut chips = Row::new().gap(8.0);
+        for p in presets(sensor) {
             let c = ctx.clone();
-            presets = presets.child(
+            chips = chips.child(
                 Button::new(p.to_string())
                     .on_click(move || c.edit(|cfg| cfg.dpi[i].dpi = p))
                     .class(if lvl.dpi == p { "chip chip-on" } else { "chip" }),
@@ -182,7 +218,7 @@ fn editor(ctx: AppCtx) -> impl Widget {
                 Row::new()
                     .gap(10.0)
                     .cross_axis_alignment(CrossAxisAlignment::End)
-                    .child(Text::new(format!("Ступень {}", i + 1)).class("editor-level"))
+                    .child(Text::new(t!("Ступень {n}", n = i + 1)).class("editor-level"))
                     .child(DecoratedBox::new().class("grow"))
                     .children(vec![active_ctl]),
             )
@@ -206,14 +242,14 @@ fn editor(ctx: AppCtx) -> impl Widget {
             )
             .child(
                 Row::new()
-                    .child(Text::new(format!("{}", sensor.min())).class("scale-label"))
+                    .child(Text::new(sensor.min().to_string()).class("scale-label"))
                     .child(DecoratedBox::new().class("grow"))
                     .child(Text::new(grid_hint(sensor)).class("scale-label"))
                     .child(DecoratedBox::new().class("grow"))
-                    .child(Text::new(format!("{}", sensor.max())).class("scale-label")),
+                    .child(Text::new(sensor.max().to_string()).class("scale-label")),
             )
-            .child(presets)
-            .child(Text::new("Цвет индикатора ступени").class("field-label"))
+            .child(chips)
+            .child(Text::new(t!("Цвет индикатора ступени")).class("field-label"))
             .child(palette)
     })
 }

@@ -5,6 +5,7 @@
 //! «hw value» из таблицы `FUN_0040f270` (например, 0x101 → `01 01 00`).
 
 use super::packet::checksum;
+use syngui::{n_, t};
 
 /// Слотов в матрице кнопок.
 pub const SLOTS: usize = 16;
@@ -13,12 +14,12 @@ pub const SLOTS: usize = 16;
 /// Номера совпадают с цифрами на картинке `skins/0806/mouse_nr.png`
 /// (`Cfg.ini`: `K4_1=…,0x05` — кнопка 4 живёт в слоте 5, `K5_1=…,0x04` — в слоте 4).
 pub const PHYSICAL: [(&str, usize); 6] = [
-    ("Левая кнопка", 0),
-    ("Правая кнопка", 1),
-    ("Колесо (нажатие)", 2),
-    ("Боковая передняя", 4),
-    ("Боковая задняя", 3),
-    ("Кнопка DPI", 5),
+    (n_!("Левая кнопка"), 0),
+    (n_!("Правая кнопка"), 1),
+    (n_!("Колесо (нажатие)"), 2),
+    (n_!("Боковая передняя"), 4),
+    (n_!("Боковая задняя"), 3),
+    (n_!("Кнопка DPI"), 5),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,21 +88,21 @@ impl ButtonAction {
 
     pub fn label(self) -> String {
         match self {
-            ButtonAction::Left => "Левый клик".into(),
-            ButtonAction::Right => "Правый клик".into(),
-            ButtonAction::Middle => "Средний клик".into(),
-            ButtonAction::Back => "Назад".into(),
-            ButtonAction::Forward => "Вперёд".into(),
-            ButtonAction::DpiLoop => "Цикл DPI".into(),
-            ButtonAction::DpiUp => "DPI +".into(),
-            ButtonAction::DpiDown => "DPI −".into(),
-            ButtonAction::Disabled => "Отключена".into(),
+            ButtonAction::Left => t!("Левый клик"),
+            ButtonAction::Right => t!("Правый клик"),
+            ButtonAction::Middle => t!("Средний клик"),
+            ButtonAction::Back => t!("Назад"),
+            ButtonAction::Forward => t!("Вперёд"),
+            ButtonAction::DpiLoop => t!("Цикл DPI"),
+            ButtonAction::DpiUp => t!("DPI +"),
+            ButtonAction::DpiDown => t!("DPI −"),
+            ButtonAction::Disabled => t!("Отключена"),
             ButtonAction::Other([t, a, b]) => {
                 let kind = match t {
-                    0x04 => "Кнопка «Огонь»",
-                    0x05 => "Клавиша клавиатуры",
-                    0x06 => "Макрос",
-                    _ => "Спецфункция",
+                    0x04 => t!("Кнопка «Огонь»"),
+                    0x05 => t!("Клавиша клавиатуры"),
+                    0x06 => t!("Макрос"),
+                    _ => t!("Спецфункция"),
                 };
                 format!("{kind} ({t:02X} {a:02X} {b:02X})")
             }

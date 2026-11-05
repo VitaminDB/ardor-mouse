@@ -30,3 +30,4 @@ pub const LED_NEON: &str = "\u{e3e4}"; // flare
 pub const LED_SCROLL: &str = "\u{e3a5}"; // blur_on
 pub const LED_COLOR_BREATH: &str = "\u{e40a}"; // palette
 pub const LED_OFF: &str = "\u{e8ac}"; // power_settings_new
+pub const LANGUAGE: &str = "\u{e894}";

@@ -3,6 +3,7 @@
 use super::icons;
 use crate::worker::Link;
 use syngui::prelude::*;
+use syngui::t;
 use syngui::widgets::*;
 
 /// Заголовок страницы.
@@ -56,25 +57,20 @@ pub fn labeled(label: &str, value: String) -> impl Widget {
 
 /// Экран, пока профиль мыши не прочитан.
 pub fn placeholder(link: Link) -> impl Widget {
-    let (icon, title, hint, extra): (&str, &str, String, Option<String>) = match link {
-        Link::Searching | Link::Ready => (
-            icons::SEARCH,
-            "Подключение к мыши…",
-            "Читаю настройки из памяти мыши".into(),
-            None,
-        ),
+    let (icon, title, hint, extra): (&str, String, String, Option<String>) = match link {
+        Link::Searching | Link::Ready => {
+            (icons::SEARCH, t!("Подключение к мыши…"), t!("Читаю настройки из памяти мыши"), None)
+        }
         Link::NotFound => (
             icons::USB,
-            "Приёмник не найден",
-            "Вставьте 2.4G-приёмник или подключите мышь кабелем.\n\
-             Без мыши интерфейс можно посмотреть так:  ardor_mouse --simulate"
-                .into(),
+            t!("Приёмник не найден"),
+            t!("Вставьте 2.4G-приёмник или подключите мышь кабелем.\nПоддерживаются ARDOR GAMING Edge Air Ultra и Rukh.\nБез мыши интерфейс можно посмотреть так:  ardor-mouse --simulate"),
             None,
         ),
         Link::NoAccess(path) => (
             icons::LOCK,
-            "Нет доступа к устройству",
-            format!("У пользователя нет прав на {path}. Установите udev-правило и переподключите приёмник:"),
+            t!("Нет доступа к устройству"),
+            t!("У пользователя нет прав на {path}. Установите udev-правило и переподключите приёмник:", path = path),
             Some(
                 "sudo cp packaging/70-ardor-mouse.rules /etc/udev/rules.d/\n\
                  sudo udevadm control --reload-rules && sudo udevadm trigger"
@@ -83,13 +79,11 @@ pub fn placeholder(link: Link) -> impl Widget {
         ),
         Link::Asleep => (
             icons::SLEEP,
-            "Мышь спит",
-            "Приёмник на связи, но мышь не отвечает. Пошевелите мышью или нажмите любую кнопку — \
-             настройки загрузятся автоматически."
-                .into(),
+            t!("Мышь спит"),
+            t!("Приёмник на связи, но мышь не отвечает. Пошевелите мышью или нажмите любую кнопку — настройки загрузятся автоматически."),
             None,
         ),
-        Link::Error(e) => (icons::ERROR, "Ошибка связи", e, None),
+        Link::Error(e) => (icons::ERROR, t!("Ошибка связи"), e, None),
     };
     let mut col = Column::new()
         .gap(12.0)

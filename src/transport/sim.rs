@@ -66,7 +66,7 @@ impl Transport for SimTransport {
             std::thread::sleep(self.latency);
         }
         let addr = pkt.addr() as usize;
-        let id = self.model.response_id();
+        let id = self.model.spec().response_id;
         let reply = match pkt.cmd() {
             cmd::CONNECT_STATUS => Some(Response::build(id, cmd::CONNECT_STATUS, 0, 0, &[!self.asleep as u8])),
             cmd::BATTERY => {
@@ -111,7 +111,7 @@ impl Transport for SimTransport {
     }
 
     fn name(&self) -> String {
-        format!("симулятор {}", self.model.name())
+        syngui::t!("симулятор {model}", model = self.model.name())
     }
 
 }

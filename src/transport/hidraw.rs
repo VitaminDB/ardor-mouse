@@ -15,6 +15,7 @@ use super::{Error, Result, Transport};
 use crate::protocol::model::{CommandReport, Model};
 use crate::protocol::packet::{Packet, PACKET_SIZE, REPORT_ID};
 use std::ffi::CString;
+use syngui::t;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
@@ -77,7 +78,7 @@ enum MainItem {
 /// Командный ли это интерфейс мыши `model`: репорт 0x08 того вида, которым
 /// эта модель принимает команды.
 fn is_command_interface(desc: &[u8], model: Model) -> bool {
-    let kind = match model.command_report() {
+    let kind = match model.spec().command {
         CommandReport::Feature => MainItem::Feature,
         CommandReport::Output => MainItem::Output,
     };
@@ -132,7 +133,7 @@ impl HidrawTransport {
     }
 
     pub fn is_dongle(&self) -> bool {
-        self.pid == self.model.pid_dongle()
+        self.pid == self.model.spec().pid_dongle
     }
 }
 
@@ -143,7 +144,7 @@ impl Transport for HidrawTransport {
 
     fn send(&mut self, pkt: &Packet) -> Result<()> {
         let mut buf = pkt.0;
-        let rc = match self.model.command_report() {
+        let rc = match self.model.spec().command {
             CommandReport::Feature => unsafe {
                 libc::ioctl(self.fd, hidiocsfeature(PACKET_SIZE), buf.as_mut_ptr())
             },
@@ -200,7 +201,7 @@ impl Transport for HidrawTransport {
     }
 
     fn name(&self) -> String {
-        let kind = if self.is_dongle() { "2.4G-приёмник" } else { "USB-кабель" };
+        let kind = if self.is_dongle() { t!("2.4G-приёмник") } else { t!("USB-кабель") };
         let kind = format!("{} · {kind}", self.model.name());
         let dev = Path::new(&self.path).file_name().map(|s| s.to_string_lossy().into_owned());
         format!("{kind} · {}", dev.unwrap_or_default())

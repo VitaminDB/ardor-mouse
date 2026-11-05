@@ -10,7 +10,9 @@ use crate::transport::{Battery, Device, Error};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
+use syngui::i18n::t;
 use syngui::prelude::*;
+use syngui::t;
 
 /// Период опроса связи.
 const POLL: Duration = Duration::from_secs(2);
@@ -91,8 +93,10 @@ impl Sink {
     fn loaded(&self, cfg: DeviceConfig, force: bool) {
         let sink = *self;
         run_on_main_thread(move || {
-            let dirty = sink.snapshot.get_untracked().is_some_and(|s| s != sink.edit.get_untracked());
-            if force || !dirty {
+            let edit = sink.edit.get_untracked();
+            let dirty = sink.snapshot.get_untracked().is_some_and(|s| s != edit);
+            // Правки другой мыши (сменили приёмник) к этой не применимы.
+            if force || !dirty || edit.model != cfg.model {
                 sink.edit.set(cfg.clone());
             }
             sink.snapshot.set(Some(cfg));
@@ -197,7 +201,7 @@ impl Worker {
 
     fn read(&mut self, force: bool) {
         let Some(dev) = self.dev.as_mut() else { return };
-        self.sink.busy.set(Some("Чтение настроек мыши…".into()));
+        self.sink.busy.set(Some(t!("Чтение настроек мыши…")));
         let model = dev.model();
         let res = dev.read_profile();
         self.sink.busy.set(None);
@@ -213,15 +217,15 @@ impl Worker {
                 if !warn.is_empty() {
                     self.sink.notify(
                         NoticeKind::Error,
-                        format!("Повреждённые поля заменены заводскими: {}", warn.join(", ")),
+                        t!("Повреждённые поля заменены заводскими: {fields}", fields = join_names(&warn)),
                     );
                 } else if force {
-                    self.sink.notify(NoticeKind::Info, "Настройки перечитаны с мыши");
+                    self.sink.notify(NoticeKind::Info, t!("Настройки перечитаны с мыши"));
                 }
             }
             Err(e) => {
                 if force {
-                    self.sink.notify(NoticeKind::Error, format!("Не удалось прочитать: {e}"));
+                    self.sink.notify(NoticeKind::Error, t!("Не удалось прочитать: {error}", error = e));
                 }
                 self.fail(&e);
             }
@@ -242,7 +246,7 @@ impl Worker {
             Ok(()) => eprintln!("образ профиля ({} байт) сохранён в {}", mem.len(), path.display()),
             Err(e) => {
                 eprintln!("не удалось сохранить образ в {}: {e}", path.display());
-                self.sink.notify(NoticeKind::Error, format!("Дамп не сохранён: {e}"));
+                self.sink.notify(NoticeKind::Error, t!("Дамп не сохранён: {error}", error = e));
             }
         }
     }
@@ -251,7 +255,7 @@ impl Worker {
         match job {
             Job::Refresh => {
                 if self.dev.is_none() {
-                    self.sink.notify(NoticeKind::Error, "Мышь не подключена");
+                    self.sink.notify(NoticeKind::Error, t!("Мышь не подключена"));
                     return;
                 }
                 self.read(true);
@@ -262,35 +266,63 @@ impl Worker {
 
     fn apply(&mut self, new: DeviceConfig, old: DeviceConfig) {
         if self.opts.read_only {
-            return self.sink.notify(NoticeKind::Error, "Режим только чтения — запись отключена");
+            return self.sink.notify(NoticeKind::Error, t!("Режим только чтения — запись отключена"));
         }
         if let Err(msg) = new.validate() {
             return self.sink.notify(NoticeKind::Error, msg);
         }
+        let Some(dev) = self.dev.as_mut() else {
+            return self.sink.notify(NoticeKind::Error, t!("Мышь не подключена"));
+        };
+        // Профиль мог быть прочитан с другой мыши (приёмник сменили между
+        // чтением и записью) — такой образ писать нельзя.
+        if new.model != old.model || new.model != dev.model() {
+            self.need_read = true;
+            return self.sink.notify(NoticeKind::Error, t!("Подключена другая мышь — настройки перечитаны"));
+        }
         let regions = new.changed_regions(&old);
         if regions.is_empty() {
-            return self.sink.notify(NoticeKind::Info, "Изменений нет");
+            return self.sink.notify(NoticeKind::Info, t!("Изменений нет"));
         }
-        let Some(dev) = self.dev.as_mut() else {
-            return self.sink.notify(NoticeKind::Error, "Мышь не подключена");
-        };
         let sink = self.sink;
         let res = dev.write_regions(&regions, |i, n, name| {
-            sink.busy.set(Some(format!("Запись: {name} ({}/{n})", i + 1)));
+            sink.busy.set(Some(t!("Запись: {name} ({i}/{n})", name = t(name), i = i + 1, n = n)));
         });
         sink.busy.set(None);
         match res {
             Ok(()) => {
                 let names: Vec<&str> = regions.iter().map(|r| r.name).collect();
                 sink.snapshot.set(Some(new));
-                sink.notify(NoticeKind::Success, format!("Сохранено в мышь: {}", names.join(", ")));
+                sink.notify(NoticeKind::Success, t!("Сохранено в мышь: {names}", names = join_names(&names)));
             }
             Err(e) => {
-                sink.notify(NoticeKind::Error, format!("Запись не удалась: {e}"));
+                sink.notify(NoticeKind::Error, t!("Запись не удалась: {error}", error = e));
                 // Часть участков могла записаться — перечитать при следующем опросе.
                 self.need_read = true;
                 self.fail(&e);
             }
         }
+    }
+}
+
+/// Переведённые имена участков без повторов (запись по 4-байтным записям
+/// даёт несколько участков с одним именем), через запятую.
+fn join_names(names: &[&str]) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    for n in names {
+        if !seen.contains(n) {
+            seen.push(n);
+        }
+    }
+    seen.iter().map(|n| t(n)).collect::<Vec<_>>().join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_names;
+
+    #[test]
+    fn names_are_deduplicated() {
+        assert_eq!(join_names(&["кнопки", "значения DPI", "кнопки"]), "кнопки, значения DPI");
     }
 }
