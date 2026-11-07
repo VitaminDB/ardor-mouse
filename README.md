@@ -1,6 +1,5 @@
 # ardor-mouse
 
-[![Vibe-coded with Claude Code](https://img.shields.io/badge/vibe--coded-Claude%20Code-d97757)](#how-it-is-built)
 [![AUR](https://img.shields.io/aur/version/ardor-mouse)](https://aur.archlinux.org/packages/ardor-mouse)
 [![Release](https://img.shields.io/github/v/release/VitaminDB/ardor-mouse)](https://github.com/VitaminDB/ardor-mouse/releases)
 
@@ -151,10 +150,10 @@ mice.
   utility, PAW3950 codec, Motion Sync, LP/HP, 2000 Hz, tested on a real Rukh
   ([#1](https://github.com/VitaminDB/ardor-mouse/pull/1)).
 
-## How it is built
+## How it is tested
 
-Since spring 2026 I have been working in [Claude Code](https://claude.com/claude-code). The
-protocol was reverse-engineered from and tested on real mice.
+The protocol was reverse-engineered from and tested on real mice. Developed with the help of
+[Claude Code](https://claude.com/claude-code).
 
 ## Disclaimer
 
